@@ -35,11 +35,11 @@ procDict = "FCCee_procDict_winter2023_IDEA.json"
 # Define the input dir (optional)
 
 
-inputDir="/eos/cms/store/cmst3/group/top/anmehta/FCC///output_condor_20241005_1231/WbWb/{}/{}/".format(channel,pf)
-#inputDir   ="/eos/cms/store/cmst3/group/top/anmehta/FCC/condor_WbWb/{}/{}/".format(channel,pf)
+inputDir="/eos/cms/store/cmst3/group/top/anmehta/FCC/output_condor_20241031_1633/WbWb/{}/{}/".format(channel,pf)
+
 
 # Optional: output directory, default is local running directory
-outputDir = "/eos/cms/store/cmst3/group/top/anmehta/FCC///output_condor_20241005_1231/WbWb/outputs/histmaker/{}/{}/".format(channel,pf)
+outputDir = "/eos/cms/store/cmst3/group/top/anmehta/FCC/output_condor_20241031_1633/WbWb/outputs/histmaker/{}/{}/".format(channel,pf)
 print('this is outdir',outputDir)
 
 # optional: ncpus, default is 4, -1 uses all cores available
