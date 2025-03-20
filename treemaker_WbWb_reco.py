@@ -3,9 +3,9 @@ import urllib
 
 # list of processes
 all_processes = {
-    "p8_ee_ZZ_ecm365":{ "fraction": 1,},
-    "p8_ee_ZZ_ecm345":{ "fraction": 1,},
-    "p8_ee_ZZ_ecm340":{ "fraction": 1,},
+#    "p8_ee_ZZ_ecm365":{ "fraction": 1,},
+#    "p8_ee_ZZ_ecm345":{ "fraction": 1,},
+#    "p8_ee_ZZ_ecm340":{ "fraction": 1,},
 #    "wzp6_ee_qq_PSdown_ecm340" :{ "fraction": 1,},
 #    "wzp6_ee_qq_PSup_ecm345":{ "fraction": 1,},
 #    "wzp6_ee_qq_PSdown_ecm345":{ "fraction": 1,},
@@ -39,9 +39,9 @@ all_processes = {
 #    "wzp6_ee_WbWb_ecm365": {
 #        "fraction": 1,
 #    },
-#    "p8_ee_WW_ecm345": {
-#        "fraction": 1,
-#    },
+    "p8_ee_WW_ecm345": {
+        "fraction": 1,
+    },
 #    "p8_ee_WW_ecm365": {
 #         "fraction": 1,
 #    },    
@@ -305,7 +305,7 @@ all_branches = [
     "jet1_R5_isS","jet2_R5_isS","jet3_R5_isS","jet4_R5_isS","jet5_R5_isS","jet6_R5_isS",                
     "jet1_R5_isC","jet2_R5_isC","jet3_R5_isC","jet4_R5_isC","jet5_R5_isC","jet6_R5_isC",                
     "jet1_R5_isD","jet2_R5_isD","jet3_R5_isD","jet4_R5_isD","jet5_R5_isD","jet6_R5_isD",                                
-    "jet1_R5_isTAU","jet2_R5_isTAU","jet3_R5_isTAU","jet4_R5_isTAU","jet5_R5_isTAU","jet6_R5_isTAU","mbbar_p9","mbbar_p89","mbbar_p91",
+    "jet1_R5_isTAU","jet2_R5_isTAU","jet3_R5_isTAU","jet4_R5_isTAU","jet5_R5_isTAU","jet6_R5_isTAU","mbbar_p9","mbbar_p89","mbbar_p91", "bjet1_R5_true_p","ljet1_R5_true_p",
     ]
 
 if saveExclJets: all_branches+=[ "njets", "jet1_p", "jet2_p", "jet3_p","jet4_p","jet5_p","jet6_p",
@@ -571,10 +571,16 @@ class RDFanalysis:
         df = df.Define("jet6_R5_pflavor","jets_R5_p.size()>5 ? jets_R5_pflavor[5] : -999")
         df = df.Define("njets_R5",       "return int(jets_R5_pflavor.size())")
 
+
+        
+
+        
+        
         df = df.Define("jets_R5_btag_true", "JetTaggingUtils::get_btag({}, 1.0)".format('jets_R5_pflavor'))
         df = df.Define("jets_R5_ctag_true", "JetTaggingUtils::get_ctag({}, 1.0)".format('jets_R5_pflavor'))
         df = df.Define("jets_R5_ltag_true", "JetTaggingUtils::get_ltag({}, 1.0)".format('jets_R5_pflavor'))
         df = df.Define("jets_R5_gtag_true", "JetTaggingUtils::get_gtag({}, 1.0)".format('jets_R5_pflavor'))
+        
 
         df = df.Define("jets_R5_btag_eff_p9", "JetTaggingUtils::get_btag({}, .9)".format('jets_R5_pflavor'))
         df = df.Define("jets_R5_btag_eff_p89", "JetTaggingUtils::get_btag({}, .89)".format('jets_R5_pflavor'))
@@ -594,6 +600,15 @@ class RDFanalysis:
         df = df.Define("nljets_R5_true", "return int(jets_R5_ltag_true.size())")
         df = df.Define("ngjets_R5_true", "return int(jets_R5_gtag_true.size())")
 
+
+        df = df.Define("bjets_R5_true",  "JetConstituentsUtils::compute_tlv_jets({})". format('jets_R5_btagged_true'))
+        df = df.Define("ljets_R5_true",  "JetConstituentsUtils::compute_tlv_jets({})". format('jets_R5_ltagged_true'))
+        df = df.Define("bjet1_R5_true_p","nbjets_R5_true > 1 ? bjets_R5_true[0].P() : -999")
+        df = df.Define("ljet1_R5_true_p","nljets_R5_true > 1 ? ljets_R5_true[0].P() : -999")
+
+        
+
+        
         df = df.Define("nbjets_R5_eff_p9", "return int(jets_R5_btagged_eff_p9.size())")
         df = df.Define("nbjets_R5_eff_p89", "return int(jets_R5_btagged_eff_p89.size())")
         df = df.Define("nbjets_R5_eff_p91", "return int(jets_R5_btagged_eff_p91.size())")

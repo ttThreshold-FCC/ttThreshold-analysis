@@ -1,5 +1,5 @@
 #!/bin/bash
-for ecm in  340 345 365 #340 345 365 #350 355 345 365 340
+for ecm in  365  #340 365 #340 345 365 #350 355 345 365 340
 do
 #    for channel in semihad had
 #    do
@@ -27,19 +27,19 @@ do
 #	python plotter_withsyst.py  --vname  BDT_score --sel twob --msel njgt1  -c had     -e ${ecm}  -p  # --logy
 #
 #
-	python plotter_withsyst.py  --vname  singlebin  --sel zerob   --msel njgt0 -c  semihad -e ${ecm}  -p --logy
-	python plotter_withsyst.py  --vname  njets_R5   --sel oneb    --msel njgt0 -c  semihad -e ${ecm}  -p --logy
-	python plotter_withsyst.py  --vname  njets_R5   --sel twob    --msel njgt0 -c  semihad -e ${ecm}  -p --logy
-	python plotter_withsyst.py  --vname  singlebin  --sel zerob   --msel njgt0 -c  semihad -e ${ecm}  -p 
-	python plotter_withsyst.py  --vname  njets_R5   --sel oneb    --msel njgt0 -c  semihad -e ${ecm}  -p 
-	python plotter_withsyst.py  --vname  njets_R5   --sel twob    --msel njgt0 -c  semihad -e ${ecm}  -p 
+	python plotter_withsyst.py  --vname  singlebin  --sel zerob   --msel njgt0 -c  semihad -e ${ecm}  -p  --logy 
+#	python plotter_withsyst.py  --vname  njets_R5   --sel oneb    --msel njgt0 -c  semihad -e ${ecm}  -p -i --logy
+#	python plotter_withsyst.py  --vname  njets_R5   --sel twob    --msel njgt0 -c  semihad -e ${ecm}  -p -i --logy
+	python plotter_withsyst.py  --vname  singlebin  --sel zerob   --msel njgt0 -c  semihad -e ${ecm}  -p  
+#	python plotter_withsyst.py  --vname  njets_R5   --sel oneb    --msel njgt0 -c  semihad -e ${ecm}  -p -i 
+#	python plotter_withsyst.py  --vname  njets_R5   --sel twob    --msel njgt0 -c  semihad -e ${ecm}  -p -i 
     
-	python plotter_withsyst.py  --vname  njets_R5   --sel oneb    --msel njgt1 -c  had -e ${ecm}  -p  --logy
-	python plotter_withsyst.py  --vname  njets_R5   --sel zerob   --msel njgt1 -c  had -e ${ecm}  -p  --logy
-	python plotter_withsyst.py  --vname  njets_R5   --sel twob    --msel njgt1 -c  had -e ${ecm}  -p  --logy
-	python plotter_withsyst.py  --vname  njets_R5   --sel oneb    --msel njgt1 -c  had -e ${ecm}  -p  
-	python plotter_withsyst.py  --vname  njets_R5   --sel zerob   --msel njgt1 -c  had -e ${ecm}  -p  
-	python plotter_withsyst.py  --vname  njets_R5   --sel twob    --msel njgt1 -c  had -e ${ecm}  -p   
+#	python plotter_withsyst.py  --vname  njets_R5   --sel oneb    --msel njgt1 -c  had -e ${ecm}  -p  -i --logy
+	#python plotter_withsyst.py  --vname  njets_R5   --sel zerob   --msel njgt1 -c  had -e ${ecm}  -p   --logy
+#	python plotter_withsyst.py  --vname  njets_R5   --sel twob    --msel njgt1 -c  had -e ${ecm}  -p  -i --logy
+#	python plotter_withsyst.py  --vname  njets_R5   --sel oneb    --msel njgt1 -c  had -e ${ecm}  -p  -i 
+	#python plotter_withsyst.py  --vname  njets_R5   --sel zerob   --msel njgt1 -c  had -e ${ecm}  -p  -i 
+#	python plotter_withsyst.py  --vname  njets_R5   --sel twob    --msel njgt1 -c  had -e ${ecm}  -p  -i  
     
 	#python plotter_withsyst.py  --vname  njets_R5   --sel no_cut  --msel njgt0 -c  ${channel} -e ${ecm}  -p    --logy
 	#python plotter_withsyst.py  --vname  njets_R5   --sel zerob   --msel njgt0 -c  ${channel} -e ${ecm}  -p    --logy

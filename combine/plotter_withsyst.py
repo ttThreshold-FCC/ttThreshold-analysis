@@ -56,9 +56,11 @@ def stackPlot(fname,vname,lumi,channel,ecm,useLog,showInt,nostack,sel,nj_cut):
     Canv.SetTickx(1);   Canv.SetTicky(1);   Canv.SetLeftMargin(0.16);   Canv.SetRightMargin(0.08);
     Canv.SetBottomMargin(0.13);   Canv.SetFrameFillStyle(0);   Canv.SetFrameBorderMode(0);
     pf=""    
-    #legend = ROOT.TLegend(0.5 if showInt else 0.635,0.67,0.8 if showInt else  0.875,0.85);
-    #legend = ROOT.TLegend(0.65,0.63,0.9,0.77);
+
+
     legend = ROOT.TLegend(0.2,0.7,0.935,0.75);
+
+    #legend = ROOT.TLegend(0.2,0.4,0.935,0.75);
     legend.SetNColumns(5);legend.SetFillColor(0);legend.SetFillStyle(0); legend.SetShadowColor(0);   legend.SetLineColor(0);
     legend.SetTextFont(42);        legend.SetBorderSize(0);   legend.SetTextSize(0.032);
     hs=ROOT.THStack(f'hs_{channel}_{ecm}',""); 
@@ -102,10 +104,12 @@ def stackPlot(fname,vname,lumi,channel,ecm,useLog,showInt,nostack,sel,nj_cut):
     hs.Draw("HIST" if not nostack else 'nostackhist');
     hs.GetXaxis().SetTitle(xtitle)
     hs.GetYaxis().SetTitle("Events");
+    
     hs.GetYaxis().SetLabelSize(0.04);    hs.GetYaxis().SetTitleSize(0.045);    hs.GetYaxis().SetTitleOffset(1.22);
     hs.GetXaxis().SetTitleSize(0.045);    hs.GetXaxis().SetTitleOffset(1.0); hs.GetXaxis().SetLabelSize(0.04);
-    hs.GetYaxis().SetMaxDigits(3);
-    hs.GetXaxis().SetTitleFont(42);        hs.GetYaxis().SetTitleFont(42);    
+    if "zerob" in sel and "single" in vname :
+        hs.GetXaxis().SetLabelOffset(999);  hs.GetXaxis().SetTitleOffset(999);   hs.GetXaxis().SetTickLength(0);
+    hs.GetYaxis().SetMaxDigits(3);hs.GetXaxis().SetTitleFont(42);        hs.GetYaxis().SetTitleFont(42);    
     t2a = drawSLatex(0.2,0.85,"#bf{FCC-ee} #it{Simulation (Delphes)}",0.04);
     moresel=nice_names[nj_cut] 
     if sel == "twob":
@@ -209,7 +213,7 @@ def cards(mkplots,lumi,xsec_sig,channel,sel,bWP,ecm,logy,vname,xtitle,showInt,no
     h_obs.Add(h_bkg2)
 
 
-    p8_ee_ZZ={'345':0.6428 , '340':0.6428 ,'365':0.6428 }
+    p8_ee_ZZ={'345':0.932 , '340':0.916 ,'365':0.6428 }
     h_bkg3           = getHist(False,f'sig_vs_wwz/p8_ee_ZZ_ecm{ecm}',vname,f"x_zz_{channel}",p8_ee_ZZ[ecm],channel,ecm,lumi)
     h_bkg3_btagUp    = getHist(False,f'sig_vs_wwz_btagup/p8_ee_ZZ_ecm{ecm}',vname_btagUp,f"x_zz_{channel}_btagUp",p8_ee_ZZ[ecm],channel,ecm,lumi)
     h_bkg3_btagDown  = getHist(False,f'sig_vs_wwz_btagdown/p8_ee_ZZ_ecm{ecm}',vname_btagDown,f"x_zz_{channel}_btagDown",p8_ee_ZZ[ecm],channel,ecm,lumi)
