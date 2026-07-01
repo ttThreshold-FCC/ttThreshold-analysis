@@ -1,0 +1,441 @@
+% ===================================================================
+%  m_W via forward-folding (Matrix Element Method by MC reweighting)
+%  WW -> l nu q q-bar  at FCC-ee threshold (ecm 157/160/163)
+%  Build:  source /cvmfs/sft.cern.ch/lcg/external/texlive/2024/bin/x86_64-linux  on PATH
+%          pdflatex -interaction=nonstopmode mw_forward_fold.tex   (run twice)
+% ===================================================================
+\documentclass[aspectratio=169,10pt]{beamer}
+\usetheme{Madrid}
+\usecolortheme{whale}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{caption}{\insertcaption}
+\setbeamerfont{frametitle}{size=\large}
+\setbeamertemplate{frametitle continuation}{}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{textcomp}
+
+\graphicspath{{figs/}}
+\definecolor{good}{RGB}{0,120,0}
+\definecolor{warn}{RGB}{190,0,0}
+\newcommand{\mw}{m_W}
+\newcommand{\mwhat}{\hat m_W}
+\newcommand{\mwhati}{\hat m_{W,i}}
+\newcommand{\mqq}{m_{q\bar q}}
+\newcommand{\mlv}{m_{\ell\nu}}
+\newcommand{\reco}{^{\mathrm{reco}}}
+\newcommand{\gen}{^{\mathrm{gen}}}
+\newcommand{\GeV}{\,\mathrm{GeV}}
+\newcommand{\MeV}{\,\mathrm{MeV}}
+\newcommand{\good}[1]{\textcolor{good}{#1}}
+\newcommand{\warn}[1]{\textcolor{warn}{#1}}
+
+\title[$\mw$ by forward-folding]{Measuring $\mw$ by forward-folding}
+\subtitle{The Matrix Element Method via MC reweighting \\ $WW\to\ell\nu q\bar q$ at the FCC-ee $WW$ threshold}
+\author[Defranchis]{M.\ Defranchis}
+\institute[CERN]{CERN}
+\date{20 June 2026}
+
+\begin{document}
+
+{\setbeamertemplate{footline}{}\begin{frame}\titlepage\end{frame}}
+
+% -------------------------------------------------------------------
+\begin{frame}{Outline \& one-sentence summary}
+\textbf{Goal.} Measure $\mw$ from semileptonic $WW$ events at the threshold scan
+($\sqrt{s}=157/160/163\GeV$, $\sim$92k events / point) by fitting \emph{only} $\mw$.
+\vfill
+\begin{block}{The whole method in one object}
+There is \textbf{one} object: the per-event \emph{folded} likelihood
+\[
+  L_i(\mw)\;=\;-2\ln P\!\left(\mqq\reco,\;\mlv\reco \,\middle|\, \mw\right)_{\!i},
+\]
+the resolution-folded double-Breit--Wigner lineshape evaluated on event $i$'s two measured $W$ masses.
+\end{block}
+\vfill
+\textbf{Two read-outs of this one object:}
+\begin{itemize}
+  \item[(A)] \textbf{Sum} over events $\Rightarrow$ one ensemble $\mwhat$ = \emph{the measurement} (optimal, unbinned ML).
+  \item[(B)] \textbf{Per-event} $\mwhati$ (peak of $L_i$) $\Rightarrow$ a data/MC-\emph{checkable} distribution.
+\end{itemize}
+\vfill
+\footnotesize Tableau: motivation $\to$ method (lineshape, why convolution fails, forward-folding)
+$\to$ two read-outs $\to$ validation (data/MC, per-event measurement) $\to$ results $\to$ systematics.
+\end{frame}
+
+% ===================================================================
+\section{Motivation}
+% ===================================================================
+\begin{frame}{Why a 1-D $\mw$-only fit}
+\textbf{The observables} (already in the tree, massless reco objects):
+\[
+  \mqq\reco=\text{dijet mass},\qquad \mlv\reco=(\ell+\nu)\text{ with }\nu=\vec p_T^{\,\mathrm{miss}}.
+\]
+\vfill
+\textbf{The problem with per-event kinematic fits.} Fitting $\mw$ \emph{plus} per-event nuisances
+(jet/lepton scales, ISR, $\nu_z$) opens a near-flat direction:
+\begin{itemize}
+  \item floating invisible ISR-$z\leftrightarrow\nu_z$ lets the leptonic mass retune to \emph{any} $\mw$;
+  \item $\sim$25--60\% of events do not converge (intrinsic, not a solver bug).
+\end{itemize}
+\vfill
+\begin{block}{Fix: stop fitting nuisances per event}
+Fit \textbf{only} $\mw$ over the \emph{ensemble}. No per-event free direction $\Rightarrow$
+$\sim$100\% of events usable. The detector response is taken \emph{from the MC}, not fit.
+\end{block}
+\end{frame}
+
+% ===================================================================
+\section{The method}
+% ===================================================================
+\begin{frame}{The lineshape: CC03 double Breit--Wigner $\times$ ISR $\times$ phase space}
+\[
+  P_{\mathrm{true}}(m_h,m_l;\mw)=\frac{1}{Z(\mw)}\!\int\! d\rho(\sqrt{s'})\;
+  \mathrm{BW}(m_h;\mw)\,\mathrm{BW}(m_l;\mw)\,
+  \frac{\sqrt{\lambda(s',m_h^2,m_l^2)}}{s'}
+\]
+\[
+  \mathrm{BW}(m;\mw)=\frac{\mw\Gamma_W}{(m^2-\mw^2)^2+(\mw\Gamma_W)^2},\qquad
+  \rho(\sqrt{s'})=\text{ISR radiator (Kuraev--Fadin)} .
+\]
+\vspace{-2mm}
+\begin{columns}[T]
+\begin{column}{0.6\textwidth}
+\includegraphics[width=\linewidth]{lineshape_demo_ecm160}
+\end{column}
+\begin{column}{0.4\textwidth}\footnotesize
+\begin{itemize}
+  \item BW peak at $\mw$; the $\sqrt{\lambda}/s'$ \emph{phase space} pulls the observable mean \emph{below} the pole.
+  \item $Z(\mw)$ = the kinematic normalisation, computed on-the-fly with Gauss--Legendre ($N=256$) over the
+        $\arctan(m^2)$ substitution (the naive GL-24 slopes $\sim\!-0.04/\GeV \Rightarrow +40\MeV$ bias; fixed).
+  \item Right panel: the model matches the true gen-mass distribution.
+\end{itemize}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Why the literal (analytic) convolution fails}
+\textbf{Plan A} (the obvious one): $P\reco = P_{\mathrm{true}}\otimes K$ with a measured resolution kernel $K$.
+\begin{columns}[T]
+\begin{column}{0.52\textwidth}
+\includegraphics[width=\linewidth]{fit_reco_obs_ecm160}
+\end{column}
+\begin{column}{0.48\textwidth}\footnotesize
+\warn{FAILS closure by $\sim$300\,MeV.} Two unit tests pin the cause:
+\begin{enumerate}
+  \item \textbf{Mean:} the analytic CC03 marginal mean is $73.8\GeV$ vs the actual gen mean $75.9\GeV$
+        ($\Delta=2.1\GeV$): the model shape is wrong.
+  \item \textbf{Synth:} even a \emph{stationary-by-construction} kernel fails $\Rightarrow$ convolving a
+        mis-shaped $P_{\mathrm{true}}$ with a kernel measured on the real distribution is inconsistent.
+\end{enumerate}
+The FFT itself is exact (a salvage test convolving the \emph{real} gen histogram closes to $0.23\GeV$).
+\textbf{The kernel is also mildly non-stationary} ($\langle\Delta\mqq\rangle$ drifts with true mass).
+\end{column}
+\end{columns}
+\vfill
+\centering\textbf{$\Rightarrow$ Don't model the folding analytically. Take it from the MC.}
+\end{frame}
+
+\begin{frame}{The fix: forward-folding = MEM by MC reweighting}
+\textbf{Idea.} The MC events already carry the \emph{real} per-event gen$\to$reco smearing.
+Build the reco template at a trial $\mw$ by \emph{reweighting} the actual MC reco masses:
+\[
+  w_i(\mw)=\frac{P_{\mathrm{true}}(m\gen_i;\mw)}{P_{\mathrm{true}}(m\gen_i;m_{W0})},\qquad
+  T(m\reco;\mw)=\sum_i w_i(\mw)\,\big[\,m\reco_i\in\text{bin}\,\big].
+\]
+\vspace{-1mm}
+\includegraphics[width=\linewidth]{reweight_demo_ecm160}
+\vspace{-1mm}
+\footnotesize
+(A) the weight tilts the \emph{fixed} sample; (B) the gen peak slides to the trial $\mw$;
+(C) the reco template slides $\Rightarrow$ the fit picks the $\mw$ whose template matches the data.
+\textbf{$k$-fold} (build template from other folds) removes self-use $\Rightarrow$ all $N$ events measured, full-sample $\sigma$.
+\end{frame}
+
+\begin{frame}{This is literally the Matrix Element Method}
+\[
+  P(m\reco|\mw)=\frac{1}{\sigma(\mw)}\!\int \underbrace{|M(\mw)|^2}_{\mathrm{BW\cdot BW\cdot PS}}\;
+  \underbrace{f(\sqrt{s'})}_{\mathrm{ISR}}\;\underbrace{W(m\reco|\mathrm{true})}_{\mathrm{transfer\ fn.}}\;d(\mathrm{true})
+\]
+\begin{itemize}
+  \item The ``convolution'' was MEM with an \emph{analytic} transfer function $W$ (the kernel) -- it failed.
+  \item Forward-folding uses the \textbf{MC events as samples of $W(m\reco|\mathrm{true})$}, reweighted by
+        $|M(\mw)|^2/|M(m_{W0})|^2$ = the standard MEM-by-reweighting / template-morphing variant.
+\end{itemize}
+\vfill
+\begin{block}{Two approximations (both calibratable)}
+(1) project the full parton phase space onto the two masses;\quad
+(2) CC03 double-BW instead of the full 4-fermion ME $\Rightarrow$ a $\sqrt{s}$-dependent lineshape bias
+($-93/-120/+27\MeV$), removed by full-4f reweighting.
+\end{block}
+\end{frame}
+
+\begin{frame}{The 2-D resolution kernel (diagnostic input)}
+\centering
+\includegraphics[height=0.78\textheight]{kernel_diag_ecm160}\\
+\footnotesize The measured 2-D $(m\reco-m\gen)$ response and its (mild) non-stationarity. Used for diagnostics
+\& the synthetic unit test; the \emph{measurement} uses the per-event MC smearing directly (no kernel assumption).
+\end{frame}
+
+% ===================================================================
+\section{Two read-outs}
+% ===================================================================
+\begin{frame}{Read-out (A): sum the curves = the measurement}
+\centering
+\includegraphics[width=\linewidth]{sum_of_curves_ecm160}
+\vfill
+\footnotesize
+Each event's $L_i(\mw)$ is \emph{broad} (left). Their \emph{sum} is razor-sharp (right):
+$\mwhat=\arg\min_{\mw}\sum_i L_i(\mw)$, $\sigma_{\mw}\!\approx\!7\MeV$. Informative events are auto-weighted by curvature.
+\textbf{This is the optimal, unbinned maximum-likelihood number.}
+\end{frame}
+
+\begin{frame}{Read-out (B): the per-event $\mwhati$ distribution}
+\begin{columns}[T]
+\begin{column}{0.62\textwidth}
+\includegraphics[width=\linewidth]{perevent_mW_ecm160}
+\end{column}
+\begin{column}{0.38\textwidth}\footnotesize
+$\mwhati=\arg\max_{\mw}P_{\mathrm{folded}}(\text{masses}_i|\mw)$ -- a \emph{fixed} per-event observable
+(no nuisance fit $\Rightarrow$ no flat direction, defined for $\sim$100\% of events).
+\begin{itemize}
+  \item (A) its \emph{distribution} is a data/MC-checkable observable (validates the folding);
+  \item (B) its weighted mean \emph{shifts with the true} $\mw$ (slope $\sim$0.75) $\Rightarrow$ calibratable.
+\end{itemize}
+This is the top-mass ``ideogram'' / per-event-likelihood method.
+\end{column}
+\end{columns}
+\end{frame}
+
+% ===================================================================
+\section{Validation}
+% ===================================================================
+\begin{frame}{Staged validation -- each stage isolates one piece}
+\centering\footnotesize
+\begin{tabular}{lll}
+\toprule
+Stage & What it tests & Result @160 \\
+\midrule
+\texttt{gen\_pe}   & lineshape + normalisation (per-event exact $\sqrt{s'}$) & 80.205, 100\% events, pull 1.06 \\
+\texttt{gen\_marg} & marginalisation over the ISR radiator & 80.259 (agrees with \texttt{gen\_pe} family) \\
+\texttt{reco} (conv.) & analytic convolution & \warn{79.9 -- FAILS by $\sim$300\,MeV} \\
+\texttt{fold}      & forward-folding (the method) & \good{80.235, $\sim$100\% events, pull 0.95} \\
+\bottomrule
+\end{tabular}
+\vfill
+\normalsize
+\begin{block}{Estimator gotcha (caught by an identity unit test)}
+Gaussian-smoothing a sharp template biases the morphing MLE by $-170\MeV$. The bias-free operating point
+is \textbf{fine bins (0.5\,GeV) + light/no smoothing}. The identity test (\texttt{FOLD\_TGT=gen}, which must
+reproduce $m_{W0}$) catches it; the reco fold sits \emph{on} this estimator floor.
+\end{block}
+\end{frame}
+
+\begin{frame}{Data/MC validation -- pre/post-fit projection + pull (ecm160)}
+\centering
+\includegraphics[width=0.72\linewidth]{validation_prepostfit_ecm160}\\[0.5mm]
+{\footnotesize
+Pseudo-data (40\% held-out) vs an MC template from the \emph{disjoint} 60\%. \textbf{Post-fit} describes the data
+($\chi^2/\mathrm{ndf}\!\approx\!1$: 51/54, 61/54); a \textbf{mis-set} $\mw$ ($+0.5\GeV$) gives a coherent pull at
+the $W$ peak ($\chi^2=344/552$) $\Rightarrow$ the pull panel \emph{flags} a wrong $\mw$ / a data--MC disagreement.\par}
+\end{frame}
+
+\begin{frame}{Data/MC validation -- ecm157 \& ecm163}
+{\footnotesize
+Post-fit $\chi^2/\mathrm{ndf}$ ($\mqq$,$\mlv$): \;157: 56/54,\,65/54;\;\; 160: 51/54,\,61/54;\;\; 163: 51/54,\,56/54
+-- all $\approx1$. Mis-set $\mw$ gives $\chi^2=200$--$552$ $\Rightarrow$ clear discriminating power everywhere; the
+\emph{same} overlay a template fit calls its ``check'' (unbinned ML separates it into this plot -- nothing lost).\par}
+\vfill
+\centering
+\includegraphics[width=0.49\linewidth]{validation_prepostfit_ecm157}\hfill
+\includegraphics[width=0.49\linewidth]{validation_prepostfit_ecm163}\\[0.5mm]
+{\scriptsize ecm157 (left), ecm163 (right): pseudo-data (40\% held-out) vs the MC template from the disjoint 60\%.}
+\end{frame}
+
+\begin{frame}{The per-event read-out as an actual measurement}
+\centering
+\includegraphics[width=\linewidth]{perevent_measurement_ecm160}
+\vfill
+\footnotesize
+\textbf{(A)} the per-event $\mw$ likelihood density = the \emph{stacked per-event posterior} (each event's smooth
+likelihood curve summed $\Rightarrow$ a smooth ideogram); reweighting to true $\mw=\mu$ \emph{shifts} it
+(dotted/dashed). \textbf{(B) Closure:} slope $1.000$, residual $<\!1\MeV$ over $\pm0.4\GeV$.
+\textbf{(C) Toys:} bias $\le1\MeV$, $\sigma_{\mw}=8.1\MeV$ vs ensemble $7.1\MeV$ $\Rightarrow$ the transparent,
+histogram-native read-out costs only $\sim$15--20\%.
+\end{frame}
+
+% ===================================================================
+\section{Results}
+% ===================================================================
+\begin{frame}{Headline: closure \& precision (forward-fold, $k$-fold)}
+\begin{center}\includegraphics[width=0.9\linewidth]{fold_final_results}\end{center}
+\vspace{1pt}
+{\footnotesize
+\textbf{Left:} $\mwhat=80.289/80.235/80.385$; closure vs gen target \good{$+3/-24/-21\MeV$}; fold sits on the
+(calibratable) estimator floor. \textbf{Right:} $\sigma_{\mw}=7.6/7.1/10.1\MeV$; \textbf{2-D $\sim$40\% tighter
+than $\mqq$-only}, at the independent-combination floor (score corr $\approx0$).\par\smallskip
+\textcolor{warn}{Not a test of CC03:} the model bias \emph{cancels} in closure (same model both sides) $\Rightarrow$
+residual = estimator floor, not model failure. The CC03-vs-4f inadequacy is the \emph{separate absolute} offset
+(gen target vs PDG $=-93/-120/+27\MeV$); fold tolerates the shape error the convolution could not.\par}
+\end{frame}
+
+\begin{frame}{The decision: which read-out? -- BOTH}
+\centering
+\includegraphics[width=0.96\linewidth]{readout_compare}
+\vfill
+\footnotesize
+They are \emph{two read-outs of the same likelihood}, not competing methods.
+\textbf{Ensemble} = the headline measurement (optimal, $\sim$100\% events, $\sigma\,7$--$10\MeV$).
+\textbf{Per-event template fit} = the validation / control-region read-out (transparent, data/MC-checkable,
+$+$15--20\% on $\sigma$; closure slope 1.00, bias $<$ few MeV across $\pm0.4\GeV$).
+\end{frame}
+
+\begin{frame}{Results summary table}
+\centering
+\begin{tabular}{lccc}
+\toprule
+ & ecm157 & ecm160 & ecm163 \\
+\midrule
+events (usable)                 & 92.5k & 92.2k & 92.2k \\
+\addlinespace
+ensemble $\mwhat$ [GeV]         & 80.289 & 80.235 & 80.385 \\
+ensemble $\sigma_{\mw}$ [MeV]   & 7.6 & 7.1 & 10.1 \\
+closure vs gen target [MeV]     & \good{$+3$} & \good{$-24$} & \good{$-21$} \\
+\addlinespace
+per-event fit: closure slope    & 1.000 & 1.000 & 1.000 \\
+per-event fit: bias [MeV]       & $+0$ & $-1$ & $-1$ \\
+per-event fit: $\sigma_{\mw}$ [MeV] & 8.5 & 8.6 & 11.7 \\
+per-event / ensemble $\sigma$   & 1.12$\times$ & 1.21$\times$ & 1.16$\times$ \\
+\addlinespace
+post-fit $\chi^2/$ndf ($\mqq$,$\mlv$) & 56/54,\,65/54 & 51/54,\,61/54 & 51/54,\,56/54 \\
+\bottomrule
+\end{tabular}
+\vfill
+\footnotesize $\mw$ is the \emph{only} free parameter; pull $\approx1.0$; seed- and machine-robust.
+\end{frame}
+
+\begin{frame}{Statistical reach: the unbinned ML extrapolates like an Asimov fit}
+\begin{columns}[c]
+\begin{column}{0.56\textwidth}
+\includegraphics[width=\linewidth]{asimov_scaling}
+\end{column}
+\begin{column}{0.44\textwidth}\footnotesize
+\textbf{Q: can we project to a larger sample, as a template Asimov fit allows?} \textbf{Yes -- identically.}
+\vfill
+The ensemble test statistic is a \emph{sum over events},
+\[ -2\Delta\ln L(\mw)=\textstyle\sum_i L_i(\mw), \]
+so the Fisher information is additive, $I(\mw)=\sum_i I_i\propto N$, and $\sigma_{\mw}=1/\sqrt{I}\propto 1/\sqrt{N}$.
+\vfill
+\begin{itemize}
+  \item Two equivalent extrapolations: (i) rescale $\sigma\!\to\!\sigma\sqrt{N/N'}$; (ii) the \emph{Asimov}
+        curve = $N'\!\times$ the per-event expected $-2\ln L$ -- read its curvature, no toys.
+  \item Verified here: subsampling the MC follows $1/\sqrt{N}$, and the curvature $\sigma$ \emph{equals} the
+        bootstrap $\sigma$ (asymptotic regime).
+  \item $\Rightarrow$ statistical-only reach $\sigma\!\approx\!2.2/0.7/0.2\MeV$ at $10^{6}/10^{7}/10^{8}$ events.
+        ``Unbinned'' does \emph{not} forfeit Asimov projection -- the per-event likelihood already \emph{is} the
+        Asimov ingredient.
+\end{itemize}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ===================================================================
+\section{Systematics \& outlook}
+% ===================================================================
+\begin{frame}{Anatomy of the closure: it is the estimator floor, not modeling}
+\centering
+Decompose the matched closure:
+$\;\text{closure}=\underbrace{\text{floor}}_{\text{identity fold}-\text{gen target}}+\underbrace{\text{smear}}_{\text{fold(reco)}-\text{identity fold}}$.
+\\[0.5mm]
+\includegraphics[width=0.80\linewidth]{closure_binning_floor}\\[0.5mm]
+{\scriptsize
+\textbf{Binning probe} (\texttt{FOLD\_BIN} $0.25\!\to\!1.0$): the \warn{floor swings $\sim$100--145\,MeV} (left)
+while \good{$\mathtt{gen\_pe}$/$\mathtt{gen\_marg}$/gap are bit-invariant} (right). Variance share of the closure
+scatter: \textbf{floor $0.71/0.63$} vs smear $0.14/0.04$ $\Rightarrow$ the ECM-dependent closure \emph{scatter} is a
+\good{calibratable binned-template floor}, \textbf{not} a radiator/threshold/4f \emph{modeling} effect (revising the
+earlier hypothesis). Fine bins shrink it; genuine smearing residual $\sim\!3$--$8\MeV$, binning-stable.\par}
+\end{frame}
+
+\begin{frame}{The grid$-$exact gap = a threshold-driven marginalisation bias}
+\begin{columns}[c]
+\begin{column}{0.60\textwidth}\centering
+\includegraphics[width=\linewidth]{closure_anatomy}
+\end{column}
+\begin{column}{0.40\textwidth}\footnotesize
+The real modeling effect is the gen-target gap
+$\mathtt{gen\_marg}-\mathtt{gen\_pe}=+70/+54/+11\MeV$.
+\smallskip
+
+\textbf{(B) Width ladder:} scaling the $\sqrt{s'}$ spread $f\!:\!1\!\to\!0$ closes the gap; its \emph{spread} term
+\warn{flips sign across $2\mw=160.76$} ($+41/+38\!\to\!-27$) $\Rightarrow$ phase-space curvature / threshold.
+\smallskip
+
+\textbf{(C)} grows with off-shellness $\delta=\sqrt{s'}-(\mqq+\mlv)$; \textbf{(D)} level set by the $\sqrt{s'}$ regime.
+\smallskip
+
+\textbf{Decision:} \texttt{FOLD\_W=exact} (per-event $\sqrt{s'}$) removes the gap by construction $\Rightarrow$
+principled for the \emph{absolute} $\mw$ (fine bins minimise its floor); for closure-calibrated \emph{relative} $\mw$
+it cancels.
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Systematics \& caveats}
+\begin{itemize}
+  \item \textbf{Reweighting weight (grid vs exact):} \good{resolved} -- grid carries a $+11$ to $+70\MeV$
+        \emph{radiator-marginalisation} bias (threshold-driven, spread term flips at $2\mw$); use
+        \texttt{FOLD\_W=exact} for the absolute $\mw$ (prev.\ slides).
+  \item \textbf{Estimator floor $=$ the binning systematic:} the identity-test residual swings $\sim$100--145\,MeV
+        coarse$\to$fine and is the dominant piece of the closure scatter; \good{calibratable}, minimised by fine bins
+        ($\le0.25$); quote its bin/sm/seed stability. \warn{Avoid} the coarse-bin $+$ heavy-smooth corner.
+  \item \textbf{CC03 vs full 4f:} the \emph{separate, larger} $\sqrt{s}$-dependent absolute bias
+        ($-93/-120/+27\MeV$); removed by full-4f reweighting.
+  \item \textbf{Data/MC resolution (the leading exp.\ systematic):} the validation plot \emph{is} the handle --
+        distort the MC resolution and re-fit to propagate it.
+\end{itemize}
+\vfill
+\footnotesize All absolute-$\mw$ items need an MC/4f calibration; the \emph{closure} and \emph{precision} above are robust.
+\end{frame}
+
+\begin{frame}{Summary \& next steps}
+\begin{block}{Summary}
+\begin{itemize}
+  \item One folded likelihood $L_i(\mw)$, two read-outs: ensemble (optimal) + per-event distribution (checkable).
+  \item Forward-folding (MEM by MC reweighting) \good{works}: closure $+3/-24/-21\MeV$, $\sigma_{\mw}=7$--$10\MeV$,
+        $\sim$100\% events, pull $\approx1$. The analytic convolution fails; the MC transfer function fixes it.
+  \item Full data/MC validation (pre/post-fit + pull) and a closing per-event template-fit measurement (slope 1.00).
+\end{itemize}
+\end{block}
+\begin{block}{Next}
+\begin{enumerate}
+  \item \good{Done:} the ECM-dependent closure scatter $=$ a calibratable binning floor (\emph{not} modeling); the
+        grid$-$exact gap $=$ a threshold marginalisation bias $\Rightarrow$ \texttt{FOLD\_W=exact}.
+  \item Reduce the exact estimator floor (KDE / unbinned template / ISR-tail weight regularisation) $\to$ quote the
+        exact absolute headline; then full-4f reweighting to kill the (larger) CC03 bias.
+  \item Data/MC resolution systematic via the validation plot; C++ port (lineshape $+\log Z$ exist; needs the
+        gen-reweight $+$ reco-template stage).
+\end{enumerate}
+\end{block}
+\end{frame}
+
+{\setbeamertemplate{footline}{}\begin{frame}[plain]\centering\Large Backup\end{frame}}
+
+\begin{frame}{Backup: ensemble fit + bootstrap (ecm160)}
+\centering
+\includegraphics[width=0.92\linewidth]{fit_fold_obs_ecm160}\\
+\footnotesize Left: the ensemble $-2\Delta\ln L(\mw)$ parabola. Right: the bootstrap $\mwhat$ distribution
+(stat.\ $\sigma$, pull cross-check).
+\end{frame}
+
+\begin{frame}{Backup: per-event $\mwhati$ distributions, 3 energies}
+\centering
+\includegraphics[width=0.96\linewidth]{fold_mW_distributions}\\
+\footnotesize The per-event $\mwhati$ distribution at each energy -- the data/MC-checkable companion observable.
+\end{frame}
+
+\end{document}

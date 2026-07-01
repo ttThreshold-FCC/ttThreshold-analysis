@@ -178,7 +178,9 @@ cython_debug/
 localSamples/
 outputs/
 kinfit_inputs/
+kinfit_inputs_4q/
 logs/
+tools/build_logz_table
 .simplify.diff
 
 fccee_flavtagging_edm4hep_wc_v1.json
@@ -192,3 +194,9 @@ condor/scripts
 condor/std
 response
 misc_*
+
+# jax_prototype: regenerable fit outputs / cached kernels / scratch dumps (the .py scripts ARE tracked)
+jax_prototype/anatomy_results/
+jax_prototype/conv_kernels/
+jax_prototype/*.npz
+jax_prototype/lv_*.txt

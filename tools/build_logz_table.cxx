@@ -145,7 +145,21 @@ int main(int argc, char** argv) {
             std::printf("[build] mW row %d/%d done\n", i + 1, KF_LOGZ_GRID_N_MW);
     }
     auto t1 = std::chrono::high_resolution_clock::now();
+    // Guard against a silent short write (e.g. ENOSPC): a truncated table with a
+    // valid 72-byte header would still pass the loader's magic+dims check and then
+    // SIGBUS on mmap reads past EOF. Abort before the rename if the stream faulted.
+    f.flush();
+    if (!f.good()) {
+        std::fprintf(stderr, "[build] write/flush error on %s (disk full?); not renaming\n", tmp.c_str());
+        f.close(); std::remove(tmp.c_str());
+        return 1;
+    }
     f.close();
+    if (!f.good()) {
+        std::fprintf(stderr, "[build] close/flush error on %s; not renaming\n", tmp.c_str());
+        std::remove(tmp.c_str());
+        return 1;
+    }
     if (std::rename(tmp.c_str(), out) != 0) {
         std::fprintf(stderr, "rename %s → %s failed: %s\n",
                      tmp.c_str(), out, std::strerror(errno));

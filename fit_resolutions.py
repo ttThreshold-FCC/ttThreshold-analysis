@@ -45,14 +45,29 @@ _LOG_MIN = -_LOG_MAX
 # multiple fit_resolutions invocations can run in parallel.
 OUT_PREFIX = os.environ.get("FIT_OUT_PREFIX", "outputs/response")
 PLOTS_DIR  = f"{OUT_PREFIX}/plots"
+
+# Channel switch. WW_CHANNEL=4q reconfigures the script for the fully-hadronic
+# WW→4q pooled-jet resolution fit (p8_ee_WW_ecm160, single ECM): different input
+# tree, 4-jet dR cut, pooled-over-4-jets jet response, and a PARAMS-ONLY header
+# (kinfit_inputs_4q/dcb_params_4q.h) that reuses the struct defs / evaluators
+# from the ℓνqq dcb_params.h (included via WWKinReco4q.h → WWKinReco.h).
+WW_CHANNEL = os.environ.get("WW_CHANNEL", "lnuqq").strip()
+IS_4Q      = (WW_CHANNEL == "4q")
+
 # Kinfit inputs (dcb_params.h + dcb_results_*.json) live OUTSIDE the regularly
 # cleaned outputs/ tree — they're consumed by the kinfit at compile/run time
 # alongside logz_table.bin, see WWFunctions/WWKinReco.h.
-FUNC_DIR   = os.environ.get("KINFIT_INPUT_DIR", "kinfit_inputs")
+FUNC_DIR   = os.environ.get("KINFIT_INPUT_DIR",
+                            "kinfit_inputs_4q" if IS_4Q else "kinfit_inputs")
 os.makedirs(FUNC_DIR, exist_ok=True)
 
-ECM_LIST    = [157, 160, 163]
-INFILE_TMPL = "outputs/treemaker/lnuqq/step1/semihad/wzp6_ee_munumuqq_noCut_ecm{ecm}.root"
+if IS_4Q:
+    ECM_LIST    = [160]
+    INFILE_TMPL = os.environ.get("WW_INFILE_TMPL",
+        "outputs/treemaker/4q/step1/had_4q_v1/p8_ee_WW_ecm{ecm}.root")
+else:
+    ECM_LIST    = [157, 160, 163]
+    INFILE_TMPL = "outputs/treemaker/lnuqq/step1/semihad/wzp6_ee_munumuqq_noCut_ecm{ecm}.root"
 NBINS_DEF   = 100
 CLIP_DEF  = (0.5, 99.5)
 
@@ -62,12 +77,19 @@ CLIP_DEF  = (0.5, 99.5)
 # (verified non-monotonically at dR ∈ {0.1, 0.15, 0.2}). Override via
 # FIT_DR_MAX env var (use a large value like 999 to effectively disable).
 DR_MAX = float(os.environ.get("FIT_DR_MAX", "0.1"))
-DR_BRANCHES = ("jet1_matched_q_dR", "jet2_matched_q_dR")
+# 4q requires all four jets matched within DR_MAX (AND over DR_BRANCHES).
+DR_BRANCHES = (("jet1_matched_q_dR", "jet2_matched_q_dR",
+                "jet3_matched_q_dR", "jet4_matched_q_dR")
+               if IS_4Q else ("jet1_matched_q_dR", "jet2_matched_q_dR"))
 
 # Reco-kinematics branches loaded alongside resolutions to drive per-bin priors
 # (and masked by the same dR cut). Required by BIN_CONFIG.
-BIN_VAR_BRANCHES = ("reco_jet1_p", "reco_jet2_p", "reco_lep_p",
-                    "reco_jet1_costheta", "reco_jet2_costheta")
+BIN_VAR_BRANCHES = (("reco_jet1_p", "reco_jet2_p", "reco_jet3_p", "reco_jet4_p",
+                     "reco_jet1_costheta", "reco_jet2_costheta",
+                     "reco_jet3_costheta", "reco_jet4_costheta")
+                    if IS_4Q else
+                    ("reco_jet1_p", "reco_jet2_p", "reco_lep_p",
+                     "reco_jet1_costheta", "reco_jet2_costheta"))
 
 # Equal-occupancy bin count per binned branch.
 N_BINS_PRIOR = 5
@@ -79,19 +101,45 @@ N_BINS_PRIOR = 5
 # Jet/lep resolutions follow the resol_vs_kin study (see project memory):
 #   p_resp / θ resolution → bin on object p
 #   φ resolution          → jets on |cosθ| (1/sinθ); lep on p (track scaling)
-BIN_CONFIG = {
-    "jet1_p_resp":      ("reco_jet1_p",),
-    "jet2_p_resp":      ("reco_jet2_p",),
-    "jet_p_resp":       ("reco_jet1_p", "reco_jet2_p"),
-    "jet1_theta_resol": ("reco_jet1_p",),
-    "jet2_theta_resol": ("reco_jet2_p",),
-    "jet_theta_resol":  ("reco_jet1_p", "reco_jet2_p"),
-    "jet1_phi_resol":   ("reco_jet1_costheta",),
-    "jet2_phi_resol":   ("reco_jet2_costheta",),
-    "jet_phi_resol":    ("reco_jet1_costheta", "reco_jet2_costheta"),
-    "lep_p_resp":       ("reco_lep_p",),
-    "lep_theta_resol":  ("reco_lep_p",),
-    "lep_phi_resol":    ("reco_lep_p",),
+if IS_4Q:
+    # 4q: bin ONLY the pooled-over-4-jets responses, with the binning variable
+    # pooled over the same 4 jets (concat order jet1..jet4 matches the pooled
+    # response branch). Response & θ bin on jet p; φ on |cosθ| — like ℓνqq.
+    BIN_CONFIG = {
+        "jet_p_resp_4q":      ("reco_jet1_p", "reco_jet2_p", "reco_jet3_p", "reco_jet4_p"),
+        "jet_theta_resol_4q": ("reco_jet1_p", "reco_jet2_p", "reco_jet3_p", "reco_jet4_p"),
+        "jet_phi_resol_4q":   ("reco_jet1_costheta", "reco_jet2_costheta",
+                               "reco_jet3_costheta", "reco_jet4_costheta"),
+    }
+else:
+    BIN_CONFIG = {
+        "jet1_p_resp":      ("reco_jet1_p",),
+        "jet2_p_resp":      ("reco_jet2_p",),
+        "jet_p_resp":       ("reco_jet1_p", "reco_jet2_p"),
+        "jet1_theta_resol": ("reco_jet1_p",),
+        "jet2_theta_resol": ("reco_jet2_p",),
+        "jet_theta_resol":  ("reco_jet1_p", "reco_jet2_p"),
+        "jet1_phi_resol":   ("reco_jet1_costheta",),
+        "jet2_phi_resol":   ("reco_jet2_costheta",),
+        "jet_phi_resol":    ("reco_jet1_costheta", "reco_jet2_costheta"),
+        "lep_p_resp":       ("reco_lep_p",),
+        "lep_theta_resol":  ("reco_lep_p",),
+        "lep_phi_resol":    ("reco_lep_p",),
+    }
+
+# Per-bin jet-pool exclusion for the 4q p-binned jet priors. From the per-bin
+# per-jet comparison (jet_binned_priors_by_jet.png): the leading jet (jet1) has
+# an anomalously low response when it lands in a low-p bin (mismeasured-hard
+# population), and the softest jet (jet4) has ~no statistics in high-p bins. So
+# exclude those (jet, bin) combos from the pooled binned FIT. The bin EDGES are
+# still computed on the full 4-jet pooled distribution (kept consistent with the
+# kinfit's pick_bin), only the per-bin training subset is restricted.
+# Keyed: branch -> {1-based jet index: set of 0-based bin indices to EXCLUDE}.
+# Applies only to the p-binned branches (φ is binned in |cosθ|, where this p-based
+# rule doesn't map). N_BINS_PRIOR=5, so low = {0,1,2}, high = {3,4}.
+POOL_BIN_EXCLUDE_4Q = {
+    "jet_p_resp_4q":      {1: {0, 1, 2}, 4: {3, 4}},
+    "jet_theta_resol_4q": {1: {0, 1, 2}, 4: {3, 4}},
 }
 
 # ── Per-branch configuration overrides ─────────────────────────────────────
@@ -109,6 +157,18 @@ BRANCH_CONFIG = {
     "jet1_phi_resol":       {"clip": (0.5, 99.5),  "nbins": 150, "model": "dcb2g", "f_wide_max": 0.5},
     "jet2_phi_resol":       {"clip": (0.5, 99.5),  "nbins": 150, "model": "dcb2g", "f_wide_max": 0.5},
     "jet_phi_resol":        {"clip": (0.5, 99.5),  "nbins": 150, "model": "dcb2g", "f_wide_max": 0.5},
+    # WW→4q: jets 3/4 (same detector model as jets 1/2) + the pooled-over-4-jets
+    # responses (the only ones the 4q kinfit actually consumes). Conservative
+    # single jet prior; see treemaker_common.cluster_jets_4q / WWKinReco4q.h.
+    "jet3_p_resp":          {"clip": (0.2, 99.8),  "nbins": 150, "model": "dcb2g", "f_wide_max": 0.5},
+    "jet4_p_resp":          {"clip": (0.2, 99.8),  "nbins": 150, "model": "dcb2g", "f_wide_max": 0.5},
+    "jet_p_resp_4q":        {"clip": (0.2, 99.8),  "nbins": 150, "model": "dcb2g", "f_wide_max": 0.5},
+    "jet3_theta_resol":     {"clip": (0.5, 99.5),  "nbins": 150, "model": "dcb2g", "f_wide_max": 0.5},
+    "jet4_theta_resol":     {"clip": (0.5, 99.5),  "nbins": 150, "model": "dcb2g", "f_wide_max": 0.5},
+    "jet_theta_resol_4q":   {"clip": (0.5, 99.5),  "nbins": 150, "model": "dcb2g", "f_wide_max": 0.5},
+    "jet3_phi_resol":       {"clip": (0.5, 99.5),  "nbins": 150, "model": "dcb2g", "f_wide_max": 0.5},
+    "jet4_phi_resol":       {"clip": (0.5, 99.5),  "nbins": 150, "model": "dcb2g", "f_wide_max": 0.5},
+    "jet_phi_resol_4q":     {"clip": (0.5, 99.5),  "nbins": 150, "model": "dcb2g", "f_wide_max": 0.5},
     # Lepton p response: narrow detector core + heavy power-law left tail (FSR)
     # + sharp exponential right cutoff at 1 (kinematic ceiling). dcber3g —
     # mirror-image of expleft2g; physically motivated and fits ~2× better.
@@ -177,29 +237,55 @@ BRANCH_CONFIG = {
                              "zoom_xlim": (-10.0, 10.0)},
 }
 
-# Virtual combined branches: concatenate jet1 + jet2 into a single distribution
-# for "pooled" jet fits and the jet1-vs-jet2 comparison plot.
-COMBINED_BRANCHES = {
-    "jet_p_resp":      ("jet1_p_resp",     "jet2_p_resp"),
-    "jet_theta_resol": ("jet1_theta_resol", "jet2_theta_resol"),
-    "jet_phi_resol":   ("jet1_phi_resol",   "jet2_phi_resol"),
-}
+# Virtual combined branches: concatenate the per-jet distributions into a single
+# pooled distribution for the jet fits. ℓνqq pools jet1+jet2; 4q pools all four
+# jets into one conservative response (the pooling code handles N-tuples).
+if IS_4Q:
+    COMBINED_BRANCHES = {
+        "jet_p_resp_4q":      ("jet1_p_resp", "jet2_p_resp", "jet3_p_resp", "jet4_p_resp"),
+        "jet_theta_resol_4q": ("jet1_theta_resol", "jet2_theta_resol",
+                               "jet3_theta_resol", "jet4_theta_resol"),
+        "jet_phi_resol_4q":   ("jet1_phi_resol", "jet2_phi_resol",
+                               "jet3_phi_resol", "jet4_phi_resol"),
+    }
+else:
+    COMBINED_BRANCHES = {
+        "jet_p_resp":      ("jet1_p_resp",     "jet2_p_resp"),
+        "jet_theta_resol": ("jet1_theta_resol", "jet2_theta_resol"),
+        "jet_phi_resol":   ("jet1_phi_resol",   "jet2_phi_resol"),
+    }
 
 # Branches used by the kinematic fit (also the full set of step1 outputs we fit).
-KINFIT_BRANCHES = [
-    "jet1_p_resp", "jet2_p_resp", "lep_p_resp", "met_p_resp",
-    "jet1_theta_resol", "jet2_theta_resol", "jet1_phi_resol", "jet2_phi_resol",
-    "lep_theta_resol",  "lep_phi_resol",
-    "met_theta_resol",  "met_phi_resol",
-    "gen_WW_px", "gen_WW_py", "gen_WW_pz",
-    "gen_WW_m_minus_ecm",
-    "gen_ee_m_minus_ecm",    # BES proxy: m(post-BES e+e-) − ECM, single-Gauss fit
-    "gen_ee_pz",             # BES asymmetry δE+ − δE−, single-Gauss fit
-    "gen_WW_m_minus_m_ee",   # pure ISR mass-loss (BES variance removed)
-    # ISR 3-momentum: (depth=1 e+e-) − (depth=2 e+e-). Same delta-at-0 shape as
-    # gen_WW_*: ~40% no-ISR spike + smooth tail → spike_dcb2g.
-    "gen_isr_px", "gen_isr_py", "gen_isr_pz",
-]
+if IS_4Q:
+    # WW→4q on p8: per-jet branches (loaded so the dR mask + pooling can run;
+    # each is also fit & emitted, harmless) → pooled jet_*_4q. Plus the only two
+    # NON-degenerate WW-system priors in p8: longitudinal ISR (gen_isr_pz) and
+    # the mass loss (gen_WW_m_minus_m_ee). p8 has negligible BES
+    # (gen_ee_* ≈ 0) and purely-collinear ISR (gen_isr_px/py ≈ 0 to machine
+    # precision), so those are dropped: no BES nuisances, and transverse balance
+    # (WW pT ≈ 0) is enforced by a hardcoded tight Gaussian in WWKinReco4q.h.
+    KINFIT_BRANCHES = [
+        "jet1_p_resp", "jet2_p_resp", "jet3_p_resp", "jet4_p_resp",
+        "jet1_theta_resol", "jet2_theta_resol", "jet3_theta_resol", "jet4_theta_resol",
+        "jet1_phi_resol", "jet2_phi_resol", "jet3_phi_resol", "jet4_phi_resol",
+        "gen_isr_pz",
+        "gen_WW_m_minus_m_ee",
+    ]
+else:
+    KINFIT_BRANCHES = [
+        "jet1_p_resp", "jet2_p_resp", "lep_p_resp", "met_p_resp",
+        "jet1_theta_resol", "jet2_theta_resol", "jet1_phi_resol", "jet2_phi_resol",
+        "lep_theta_resol",  "lep_phi_resol",
+        "met_theta_resol",  "met_phi_resol",
+        "gen_WW_px", "gen_WW_py", "gen_WW_pz",
+        "gen_WW_m_minus_ecm",
+        "gen_ee_m_minus_ecm",    # BES proxy: m(post-BES e+e-) − ECM, single-Gauss fit
+        "gen_ee_pz",             # BES asymmetry δE+ − δE−, single-Gauss fit
+        "gen_WW_m_minus_m_ee",   # pure ISR mass-loss (BES variance removed)
+        # ISR 3-momentum: (depth=1 e+e-) − (depth=2 e+e-). Same delta-at-0 shape as
+        # gen_WW_*: ~40% no-ISR spike + smooth tail → spike_dcb2g.
+        "gen_isr_px", "gen_isr_py", "gen_isr_pz",
+    ]
 
 # ── Model functions ──────────────────────────────────────────────────────────
 
@@ -1449,22 +1535,26 @@ def process_ecm(ecm):
         # quark is farther than DR_MAX. The cut lives here (rather than in
         # step1) so the saved tree retains the full dR distribution for
         # diagnostics.
+        # Require ALL matched jets within DR_MAX (2 jets for ℓνqq, 4 for 4q).
         if all(b in data_all for b in DR_BRANCHES):
-            d1 = _flatten_raw(data_all[DR_BRANCHES[0]])
-            d2 = _flatten_raw(data_all[DR_BRANCHES[1]])
-            mask = (d1 < DR_MAX) & (d2 < DR_MAX)
+            dr_arrs = [_flatten_raw(data_all[b]) for b in DR_BRANCHES]
+            mask = np.ones(dr_arrs[0].size, dtype=bool)
+            for d in dr_arrs:
+                mask &= (d < DR_MAX)
             n_in, n_out = mask.size, int(mask.sum())
-            print(f"  dR cut (<{DR_MAX}): {n_out}/{n_in} = {100.*n_out/n_in:.2f}%")
+            print(f"  dR cut (<{DR_MAX}) on {len(DR_BRANCHES)} jets: "
+                  f"{n_out}/{n_in} = {100.*n_out/n_in:.2f}%")
             for b in list(branches) + [v for v in BIN_VAR_BRANCHES if v in data_all]:
                 data_all[b] = _flatten_raw(data_all[b])[mask]
         else:
             print(f"  WARNING: dR branches missing, skipping cut")
 
-        # Build virtual jet1+jet2 combined branches for the comparison plot.
-        for cname, (b1, b2) in COMBINED_BRANCHES.items():
-            if b1 in data_all and b2 in data_all:
-                data_all[cname] = np.concatenate([_flatten_raw(data_all[b1]),
-                                                  _flatten_raw(data_all[b2])])
+        # Build virtual pooled jet branches (concat over all source jets — 2 for
+        # ℓνqq, 4 for 4q).
+        for cname, srcs in COMBINED_BRANCHES.items():
+            if all(s in data_all for s in srcs):
+                data_all[cname] = np.concatenate(
+                    [_flatten_raw(data_all[s]) for s in srcs])
                 if cname not in branches:
                     branches.append(cname)
 
@@ -2023,13 +2113,16 @@ def process_ecm(ecm):
                 plt.close(fig_z)
 
     # ── Jet1 vs jet2 comparison plots ────────────────────────────────────────
-    comp_dir = f"{plot_dir}/jet_comparisons"
-    _comparison_plot(
-        ecm, _fitted, COMBINED_BRANCHES, "jet1 vs jet2", comp_dir,
-        label_a="{0}", label_b="{0}",
-        combined_label="{0} (combined fit)",
-    )
-    print(f"  Jet comparison plots → {comp_dir}/")
+    # ℓνqq only: the comparison overlays the two per-jet fits vs the pooled fit
+    # and assumes 2-source COMBINED_BRANCHES. 4q pools 4 jets → skip.
+    if not IS_4Q:
+        comp_dir = f"{plot_dir}/jet_comparisons"
+        _comparison_plot(
+            ecm, _fitted, COMBINED_BRANCHES, "jet1 vs jet2", comp_dir,
+            label_a="{0}", label_b="{0}",
+            combined_label="{0} (combined fit)",
+        )
+        print(f"  Jet comparison plots → {comp_dir}/")
 
     # ── Binned-prior pass: fit DCB per equal-occupancy bin of the binning var ─
     # Equal-occupancy edges per binning variable, computed once on the dR-cut
@@ -2081,8 +2174,27 @@ def process_ecm(ecm):
             edges_q[-1] += 1e-9
             bin_specs[bname] = (list(bcfg), edges_q.tolist())
             bin_vals[bname]  = [None] * N_BINS_PRIOR
+
+            # Optional per-bin jet-pool exclusion (4q). The pooled arrays are the
+            # concat of the 4 jets in order, equal segments, so element i belongs
+            # to jet (i // nseg)+1. Restrict the per-bin training subset only;
+            # edges above are unchanged (computed on the full pooled distribution).
+            excl  = POOL_BIN_EXCLUDE_4Q.get(bname)
+            jetid = None
+            if excl is not None:
+                nseg = len(v) // 4
+                if nseg * 4 == len(v):
+                    jetid = np.repeat([1, 2, 3, 4], nseg)
+                else:
+                    print(f"  [{ecm}]  WARN {bname}: pooled length {len(v)} not 4×N; "
+                          f"jet-pool exclusion disabled")
+
             for ibin in range(N_BINS_PRIOR):
                 m = (v >= edges_q[ibin]) & (v < edges_q[ibin+1])
+                if jetid is not None:
+                    for jet, bins_excl in excl.items():
+                        if ibin in bins_excl:
+                            m = m & (jetid != jet)
                 sub = yvals[m]
                 bin_tasks.append((bname, ibin, sub, ecm))
                 bin_n[(bname, ibin)] = int(m.sum())
@@ -2246,12 +2358,55 @@ def _cpp_param_line(bname, p, ecm):
             f"{{ {_cpp_struct_initializer(p)} }};  {note}")
 
 
-def write_combined_header(all_results):
+def write_combined_header(all_results, params_only=False, out_name="dcb_params.h"):
     """
-    Generate kinfit_inputs/dcb_params.h — a single self-contained header
-    with structs, evaluators, and fitted parameters for all ECMs.
+    Generate a kinfit-inputs C++ header from the fitted parameters.
+
+    params_only=False (default): a single self-contained header with PDF struct
+    definitions, normalised evaluators, fitted parameters, and the pick_bin
+    helper (kinfit_inputs/dcb_params.h, ℓνqq).
+
+    params_only=True (4q): emit ONLY the fitted-parameter macros wrapped in the
+    WWFunctions namespace. Struct defs / evaluators / pick_bin are reused from
+    dcb_params.h (included via WWKinReco4q.h → WWKinReco.h), so re-emitting them
+    here would be a redefinition. Written to {FUNC_DIR}/{out_name}.
+
     all_results: dict  ecm -> {bname: params_dict}
     """
+    if params_only:
+        # Distinct namespace WWFunctions4q so the 4q param macros never collide
+        # with the ℓνqq ones in dcb_params.h (same names, different sample/values).
+        # `using namespace ::WWFunctions` makes the struct types (DcbGaussParams,
+        # GaussParams, …) from dcb_params.h visible to the constexpr definitions.
+        lines = [
+            "#pragma once",
+            "// Auto-generated by fit_resolutions.py (WW_CHANNEL=4q) — do not edit by hand.",
+            "// PARAMS-ONLY: fitted-parameter macros for the 4q pooled-jet kinfit, in",
+            "// namespace WWFunctions4q. Struct defs, evaluators, and pick_bin are reused",
+            "// from dcb_params.h (included via WWKinReco4q.h → WWKinReco.h).",
+            "",
+            "namespace WWFunctions4q {",
+            "using namespace ::WWFunctions;",
+            "",
+            "// ── Fitted parameters ────────────────────────────────────────────────",
+        ]
+        for ecm in sorted(all_results):
+            results = all_results[ecm]
+            lines.append("")
+            lines.append(f"// ECM {ecm} GeV")
+            for bname, p in sorted(results.items()):
+                if "model" in p:
+                    lines.append(_cpp_param_line(bname, p, ecm))
+                if "binned" in p:
+                    lines.extend(_cpp_binned_lines(bname, p["binned"], ecm))
+        lines += ["", "} // namespace WWFunctions4q", ""]
+        out_path = f"{FUNC_DIR}/{out_name}"
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "w") as fh:
+            fh.write("\n".join(lines))
+        print(f"Written {out_path} (params-only)")
+        return
+
     lines = [
         "#pragma once",
         "// Auto-generated by fit_resolutions.py — do not edit by hand.",
@@ -2530,5 +2685,10 @@ def write_combined_header(all_results):
 if __name__ == '__main__':
     with ProcessPoolExecutor(max_workers=len(ECM_LIST)) as pool:
         all_results = dict(pool.map(process_ecm, ECM_LIST))
-    write_combined_header(all_results)
-    publish(PLOTS_DIR, os.environ.get("FIT_PUBSUB", "resolutions"))
+    if IS_4Q:
+        write_combined_header(all_results, params_only=True,
+                              out_name="dcb_params_4q.h")
+    else:
+        write_combined_header(all_results)
+    publish(PLOTS_DIR, os.environ.get("FIT_PUBSUB",
+                                      "resolutions_4q" if IS_4Q else "resolutions"))

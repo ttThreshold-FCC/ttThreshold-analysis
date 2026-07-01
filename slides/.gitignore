@@ -1,0 +1,13 @@
+# LaTeX build artifacts
+*.pdf
+*.aux
+*.log
+*.nav
+*.out
+*.snm
+*.toc
+*.vrb
+*.fls
+*.fdb_latexmk
+build1.log
+build2.log

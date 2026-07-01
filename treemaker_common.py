@@ -6,7 +6,7 @@
 import re
 from addons.FastJet.jetClusteringHelper import ExclusiveJetClusteringHelper
 
-AVAILABLE_ECM = ['157', '160', '163']
+AVAILABLE_ECM = ['157', '160', '163', '240', '365']
 
 # FSR dressing parameters (see project_lep_p_resp_fsr_dressing.md).
 # Tuned 2026-05-05 from photon-investigation analysis: dR<0.1 around the iso
@@ -49,16 +49,21 @@ def select_isoleps(df):
     return df
 
 
-def apply_channel_filter(df, channel):
-    if channel == "had":
-        df = df.Filter("muons_sel_iso.size() + electrons_sel_iso.size() == 0",
-                       "channel: 0 isolated leptons (had)")
-    elif channel == "semihad":
-        df = df.Filter("muons_sel_iso.size() + electrons_sel_iso.size() == 1",
-                       "channel: 1 isolated lepton (semihad)")
-    else:
-        df = df.Filter("muons_sel_iso.size() + electrons_sel_iso.size() == 2",
-                       "channel: 2 isolated leptons (lep)")
+def apply_channel_filter(df, channel, veto=True):
+    # veto=False skips the isolated-lepton COUNT cut but still builds the
+    # lepton/FSR-removed collection the jet clustering runs on. Used by studies
+    # that gen-select the final state (e.g. the 4q BW-pairing study) and don't
+    # want the reco lepton veto removing good gen-4q events.
+    if veto:
+        if channel == "had":
+            df = df.Filter("muons_sel_iso.size() + electrons_sel_iso.size() == 0",
+                           "channel: 0 isolated leptons (had)")
+        elif channel == "semihad":
+            df = df.Filter("muons_sel_iso.size() + electrons_sel_iso.size() == 1",
+                           "channel: 1 isolated lepton (semihad)")
+        else:
+            df = df.Filter("muons_sel_iso.size() + electrons_sel_iso.size() == 2",
+                           "channel: 2 isolated leptons (lep)")
 
     df = df.Define("Isoleps_bare", "ROOT::VecOps::Concatenate(muons_sel_iso, electrons_sel_iso)")
 
@@ -170,11 +175,62 @@ def select_gen_fromele(df):
     return df
 
 
-def define_beam_kinematics(df):
+# ── gen-level ℓνqq for the inclusive Pythia8 p8_ee_WW sample (W KEPT in history) ─
+def select_gen_fromW_semilep(df, lepton_pdgs=(11, 13)):
+    """Gen ℓνqq selection on the inclusive p8_ee_WW sample: pick the charged lepton,
+    neutrino and 2 light quarks by their immediate W parent (|PDG|==24) — the p8 analog
+    of select_gen_fromele (which uses the e±-parent proxy for the W-less Whizard samples).
+    lepton_pdgs selects the flavour(s): (11,13)=e+μ combined [default], (13,)=μ-only,
+    (11,)=e-only. τ→ℓ events drop out automatically (the e/μ has a τ parent, not W)."""
+    df = df.Alias("Particle0", "Particle#0.index")
+    lep_cols, nu_cols = [], []
+    for lpdg in lepton_pdgs:
+        npdg = lpdg + 1   # 11→12 (νe), 13→14 (νμ)
+        df = df.Define(f"gen_lep{lpdg}_fromW",
+            f"FCCAnalyses::WWFunctions::sel_genleps_fromW({lpdg})(Particle, Particle0)")
+        df = df.Define(f"gen_nu{npdg}_fromW",
+            f"FCCAnalyses::WWFunctions::sel_genleps_fromW({npdg})(Particle, Particle0)")
+        lep_cols.append(f"gen_lep{lpdg}_fromW")
+        nu_cols.append(f"gen_nu{npdg}_fromW")
+
+    def _concat(cols):
+        expr = cols[0]
+        for c in cols[1:]:
+            expr = f"ROOT::VecOps::Concatenate({expr}, {c})"
+        return expr
+
+    df = df.Define("gen_leps_fromW", _concat(lep_cols))
+    df = df.Define("gen_neutrinos_fromW", _concat(nu_cols))
+    df = df.Define("gen_lightquarks_fromW",
+        "FCCAnalyses::WWFunctions::sel_lightQuarks_fromW()(Particle, Particle0)")
+
+    df = df.Filter("gen_leps_fromW.size() == 1",
+                   "gen: exactly 1 charged lepton fromW (leptonic-W daughter)")
+    df = df.Filter("gen_neutrinos_fromW.size() == 1",
+                   "gen: exactly 1 neutrino fromW (leptonic-W daughter)")
+    df = df.Filter("gen_lightquarks_fromW.size() == 2",
+                   "gen: exactly 2 light quarks fromW (hadronic-W daughters)")
+    return df
+
+
+def define_beam_kinematics(df, post_isr_mode="whizard", gen_ww_p4=None):
     """Beam e± at the two relevant chain depths:
       depth=1 (post-BES, pre-ISR) → m(ee)−ECM gives BES;
-      depth=2 (post-ISR, into hard process) → (depth1 − depth2) gives the
-      total ISR 4-momentum."""
+      post-ISR e± (into hard process) → (depth1 − post_isr) gives the total ISR
+      4-momentum.
+
+    post_isr_mode selects how the post-ISR (hard-process-incoming) e± is found:
+      "whizard" (default) → depth-2 chain walk (sel_post_isr_electrons). Correct
+                 for the Whizard wzp6_ee_munumuqq ℓνqq samples.
+      "p8"      → generatorStatus==21 (sel_post_isr_electrons_status). Robust to
+                 Pythia8's variable-length ISR e-chain; the depth-2 walk drops
+                 ~40% of p8 events (the hard-process e sits at depth 1/2/3).
+
+    gen_ww_p4 (a TLorentzVector column name, e.g. "WW_4q_gen") enables a SECOND,
+    generator-agnostic ISR estimate from the WW system: for a fully-reconstructed
+    final state the post-ISR e+e- 4-momentum equals the WW 4-momentum (momentum
+    conservation), so gen_isr_WW = gen_ee(depth1) − gen_WW. Emitted alongside the
+    electron-based gen_isr for cross-check; needs no e-history walk → no event loss."""
     df = df.Define("gen_beams",
         "FCCAnalyses::WWFunctions::sel_beam_electrons()(Particle, Particle0)")
     df = df.Filter("gen_beams.size() == 2",
@@ -189,10 +245,18 @@ def define_beam_kinematics(df):
     # independent Gaussians) but same width.
     df = df.Define("gen_ee_pz", "gen_ee_p4.Pz()")
 
-    df = df.Define("gen_post_isr_e",
-        "FCCAnalyses::WWFunctions::sel_post_isr_electrons()(Particle, Particle0)")
-    df = df.Filter("gen_post_isr_e.size() == 2",
-                   "gen: exactly 2 post-ISR e± (depth=2)")
+    if post_isr_mode == "p8":
+        df = df.Define("gen_post_isr_e",
+            "FCCAnalyses::WWFunctions::sel_post_isr_electrons_status(21)(Particle)")
+        df = df.Filter("gen_post_isr_e.size() == 2",
+                       "gen: exactly 2 post-ISR e± (genstat==21)")
+    elif post_isr_mode == "whizard":
+        df = df.Define("gen_post_isr_e",
+            "FCCAnalyses::WWFunctions::sel_post_isr_electrons()(Particle, Particle0)")
+        df = df.Filter("gen_post_isr_e.size() == 2",
+                       "gen: exactly 2 post-ISR e± (depth=2)")
+    else:
+        raise ValueError(f"post_isr_mode={post_isr_mode!r} must be 'whizard' or 'p8'")
     df = df.Define("gen_post_isr_e_tlv",
         "FCCAnalyses::MCParticle::get_tlv(gen_post_isr_e)")
     df = df.Define("gen_ee_postisr_p4",
@@ -201,6 +265,14 @@ def define_beam_kinematics(df):
     df = df.Define("gen_isr_px", "gen_isr_p4.Px()")
     df = df.Define("gen_isr_py", "gen_isr_p4.Py()")
     df = df.Define("gen_isr_pz", "gen_isr_p4.Pz()")
+
+    # WW-system ISR proxy (generator-agnostic cross-check): gen_ee − gen_WW.
+    if gen_ww_p4 is not None:
+        df = df.Define("gen_isr_WW_p4", f"gen_ee_p4 - {gen_ww_p4}")
+        df = df.Define("gen_isr_WW_px", "gen_isr_WW_p4.Px()")
+        df = df.Define("gen_isr_WW_py", "gen_isr_WW_p4.Py()")
+        df = df.Define("gen_isr_WW_pz", "gen_isr_WW_p4.Pz()")
+
     # m(WW) − m(ee) — pure ISR mass-loss, with BES variance subtracted off vs
     # the older m(WW) − ECM. In the no-ISR limit it is exactly 0; with ISR it
     # is < 0 (energy loss to the ISR photons).
@@ -208,13 +280,18 @@ def define_beam_kinematics(df):
     return df
 
 
-def define_gen_kinematics(df):
+def define_gen_kinematics(df, lep_col="gen_leps_fromele",
+                          nu_col="gen_neutrinos_fromele",
+                          quark_col="gen_lightquarks_fromele"):
+    # lep_col/nu_col/quark_col let the p8 ℓνqq path (select_gen_fromW_semilep) reuse
+    # this builder with the *_fromW collections; defaults keep the Whizard fromele path
+    # bit-identical.
     df = df.Define("gen_leps_fromele_tlv",
-        "FCCAnalyses::MCParticle::get_tlv(gen_leps_fromele)")
+        f"FCCAnalyses::MCParticle::get_tlv({lep_col})")
     df = df.Define("gen_neutrinos_fromele_tlv",
-        "FCCAnalyses::MCParticle::get_tlv(gen_neutrinos_fromele)")
+        f"FCCAnalyses::MCParticle::get_tlv({nu_col})")
     df = df.Define("gen_lightquarks_fromele_tlv",
-        "FCCAnalyses::MCParticle::get_tlv(gen_lightquarks_fromele)")
+        f"FCCAnalyses::MCParticle::get_tlv({quark_col})")
 
     df = df.Define("lep_p4_gen", "gen_leps_fromele_tlv[0]")
     df = df.Define("nu_p4_gen",  "gen_neutrinos_fromele_tlv[0]")
@@ -360,15 +437,201 @@ def define_resolutions(df):
     return df
 
 
+# ════════════════════════════════════════════════════════════════════════════
+#  WW → 4q (fully hadronic) building blocks
+#  ───────────────────────────────────────────────────────────────────────────
+#  Parallel to the ℓνqq helpers above but for the all-hadronic channel: 4 jets,
+#  4 gen quarks grouped by parent-W (p8 keeps the W in the MC history — see
+#  WWFunctions::sel_quarks_fromW). Reuses select_isoleps, apply_channel_filter
+#  (channel="had"), and define_beam_kinematics unchanged. FSR dressing is a
+#  no-op (0 isolated leptons) so we cluster on the same reduced collection.
+# ════════════════════════════════════════════════════════════════════════════
+
+def cluster_jets_4q(df):
+    # Exclusive kt into exactly 4 jets on the (lepton/FSR-removed, here ≡ full)
+    # reconstructed collection. Jets are E-sorted (descending) like ℓνqq.
+    helper = ExclusiveJetClusteringHelper("ReconstructedParticlesNoMuNoElNoFSR", 4)
+    df = helper.define(df)
+    df = df.Define("jets_p4",
+        f"JetConstituentsUtils::compute_tlv_jets({helper.jets})")
+    df = df.Define("jet1", "jets_p4[0]")
+    df = df.Define("jet2", "jets_p4[1]")
+    df = df.Define("jet3", "jets_p4[2]")
+    df = df.Define("jet4", "jets_p4[3]")
+    df = df.Define("n_reco_jets", "(int)jets_p4.size()")
+    df = df.Filter("n_reco_jets == 4", "exactly 4 reco jets")
+    # Durham dmerge scales (y_{n,n+1}) — jet-resolution observables, kept as
+    # diagnostics / future background discriminants.
+    df = df.Define("d_23", "JetClusteringUtils::get_exclusive_dmerge(_jet, 2)")
+    df = df.Define("d_34", "JetClusteringUtils::get_exclusive_dmerge(_jet, 3)")
+    df = df.Define("d_45", "JetClusteringUtils::get_exclusive_dmerge(_jet, 4)")
+    return df, helper
+
+
+def filter_genuine_4jet(df, sqrtd45_max=7.0):
+    """Reco-level genuine-4-jet selection (standard ee 4-jet cut): reject hard
+    5th-jet / radiative events via the Durham 4→5 splitting scale, requiring
+    √d_45 < sqrtd45_max [GeV] (d_45 is in GeV²). Data-applicable — no gen truth.
+    Studied on WW→4q (sqrt-d binning): the clean (well-matched) population
+    dominates below √d_45 ≈ 5–7 GeV; the cut roughly doubles the all-4 jet→quark
+    matching efficiency and the surviving 4-jet system is much better defined.
+    sqrtd45_max<=0 disables the cut."""
+    if sqrtd45_max and sqrtd45_max > 0:
+        df = df.Filter(f"d_45 < {sqrtd45_max * sqrtd45_max}",
+                       f"reco genuine 4-jet: sqrt(d_45) < {sqrtd45_max:g} GeV")
+    return df
+
+
+def define_reco_jets_kinematics_4q(df):
+    for i in (1, 2, 3, 4):
+        df = df.Define(f"reco_jet{i}_p",        f"jet{i}.P()")
+        df = df.Define(f"reco_jet{i}_pt",       f"jet{i}.Pt()")
+        df = df.Define(f"reco_jet{i}_theta",    f"jet{i}.Theta()")
+        df = df.Define(f"reco_jet{i}_phi",      f"jet{i}.Phi()")
+        df = df.Define(f"reco_jet{i}_eta",      f"jet{i}.Eta()")
+        df = df.Define(f"reco_jet{i}_costheta", f"jet{i}.CosTheta()")
+        df = df.Define(f"reco_jet{i}_mass",     f"jet{i}.M()")
+        # Reco jets treated as massless (matches the kinfit (p,theta,phi) param).
+        df = df.Define(f"jet{i}_massless",
+            f"FCCAnalyses::WWFunctions::tlv_setmass(jet{i}, 0.)")
+    return df
+
+
+# ── gen-level (4 light quarks from the two W's; W present in p8 history) ──────
+def select_gen_fromW(df):
+    df = df.Alias("Particle0", "Particle#0.index")
+    # W-grouped quarks: size 4 → [Wa_q0, Wa_q1, Wb_q0, Wb_q1]; empty if the
+    # event is not a clean 2×(W→qq) topology (e.g. one W decayed leptonically).
+    df = df.Define("gen_quarks_W",
+        "FCCAnalyses::WWFunctions::sel_quarks_fromW()(Particle, Particle0)")
+    df = df.Filter("gen_quarks_W.size() == 4",
+                   "gen: 4 light quarks from 2 hadronic W's")
+    return df
+
+
+def select_gen_fromZ(df):
+    """Gen-level ZZ→4q filter: exactly 4 quarks from 2 Z's. Used to restrict the
+    inclusive ZZ sample to the fully-hadronic final state (the WW-hypothesis BW
+    pairing control). No pairing truth — the gof discriminant is generator-blind."""
+    df = df.Alias("Particle0", "Particle#0.index")
+    df = df.Define("gen_quarks_Z",
+        "FCCAnalyses::WWFunctions::sel_quarks_fromBoson(23)(Particle, Particle0)")
+    df = df.Filter("gen_quarks_Z.size() == 4",
+                   "gen: 4 quarks from 2 hadronic Z's")
+    return df
+
+
+def define_gen_kinematics_4q(df):
+    df = df.Define("gen_quarks_W_tlv",
+        "FCCAnalyses::MCParticle::get_tlv(gen_quarks_W)")
+    df = df.Define("gen_q0_p4", "gen_quarks_W_tlv[0]")
+    df = df.Define("gen_q1_p4", "gen_quarks_W_tlv[1]")
+    df = df.Define("gen_q2_p4", "gen_quarks_W_tlv[2]")
+    df = df.Define("gen_q3_p4", "gen_quarks_W_tlv[3]")
+
+    # The two true W's (gen grouping): W1 = q0+q1, W2 = q2+q3. Quark masses kept.
+    df = df.Define("W1_gen", "FCCAnalyses::WWFunctions::sum_p4({gen_q0_p4, gen_q1_p4})")
+    df = df.Define("W2_gen", "FCCAnalyses::WWFunctions::sum_p4({gen_q2_p4, gen_q3_p4})")
+    df = df.Define("WW_4q_gen",
+        "FCCAnalyses::WWFunctions::sum_p4({gen_q0_p4, gen_q1_p4, gen_q2_p4, gen_q3_p4})")
+
+    # W-grouped gen quark 4-vectors ([0,1]=W1, [2,3]=W2) — lets a downstream study
+    # form the TRUE and both WRONG pairings + any angular separation, vs ISR.
+    for i, src in [(0, "gen_q0_p4"), (1, "gen_q1_p4"), (2, "gen_q2_p4"), (3, "gen_q3_p4")]:
+        df = df.Define(f"gen_qW{i}_px", f"{src}.Px()")
+        df = df.Define(f"gen_qW{i}_py", f"{src}.Py()")
+        df = df.Define(f"gen_qW{i}_pz", f"{src}.Pz()")
+        df = df.Define(f"gen_qW{i}_e",  f"{src}.E()")
+
+    for W, src in [("W1", "W1_gen"), ("W2", "W2_gen")]:
+        df = df.Define(f"gen_{W}_m",  f"{src}.M()")
+        df = df.Define(f"gen_{W}_p",  f"{src}.P()")
+        df = df.Define(f"gen_{W}_pt", f"{src}.Pt()")
+        df = df.Define(f"gen_{W}_px", f"{src}.Px()")
+        df = df.Define(f"gen_{W}_py", f"{src}.Py()")
+        df = df.Define(f"gen_{W}_pz", f"{src}.Pz()")
+
+    # gen_WW_* names match the ℓνqq convention so define_beam_kinematics
+    # (gen_WW_m_minus_m_ee) and downstream resolution code reuse unchanged.
+    df = df.Define("gen_WW_m",               "WW_4q_gen.M()")
+    df = df.Define("gen_WW_m_minus_ecm",     "gen_WW_m - FCCAnalyses::WWFunctions::ECM")
+    df = df.Define("gen_WW_px",              "WW_4q_gen.Px()")
+    df = df.Define("gen_WW_py",              "WW_4q_gen.Py()")
+    df = df.Define("gen_WW_pz",              "WW_4q_gen.Pz()")
+    df = df.Define("gen_WW_p_imbalance_tot", "WW_4q_gen.P()")
+    return df
+
+
+def match_jets_to_quarks_4q(df):
+    # Global min-ΣΔR assignment: perm[i] = gen-quark index (0..3) matched to jet i.
+    df = df.Define("jet_match_perm",
+        "FCCAnalyses::WWFunctions::matchJets4(jet1, jet2, jet3, jet4, "
+        "gen_q0_p4, gen_q1_p4, gen_q2_p4, gen_q3_p4)")
+
+    for i in (1, 2, 3, 4):
+        k = i - 1
+        df = df.Define(f"gen_quark{i}_p4", f"gen_quarks_W_tlv[jet_match_perm[{k}]]")
+        df = df.Define(f"jet{i}_matched_q_dR",
+            f"(double)jet{i}.DeltaR(gen_quark{i}_p4)")
+        df = df.Define(f"gen_quark{i}_p",        f"gen_quark{i}_p4.P()")
+        df = df.Define(f"gen_quark{i}_pt",       f"gen_quark{i}_p4.Pt()")
+        df = df.Define(f"gen_quark{i}_theta",    f"gen_quark{i}_p4.Theta()")
+        df = df.Define(f"gen_quark{i}_phi",      f"gen_quark{i}_p4.Phi()")
+        df = df.Define(f"gen_quark{i}_eta",      f"gen_quark{i}_p4.Eta()")
+        df = df.Define(f"gen_quark{i}_costheta", f"gen_quark{i}_p4.CosTheta()")
+        # W-group label of jet i (quarks 0,1 → W1 = 0; quarks 2,3 → W2 = 1).
+        df = df.Define(f"jet{i}_wlab", f"(int)(jet_match_perm[{k}] >= 2)")
+
+    # True reco-jet pairing index in {0,1,2} (−1 if matching doesn't split 2-2).
+    df = df.Define("gen_pairing_true",
+        "FCCAnalyses::WWFunctions::pairing_index_from_groups("
+        "jet1_wlab, jet2_wlab, jet3_wlab, jet4_wlab)")
+    return df
+
+
+def define_match_quality_4q(df):
+    """Global jet→quark matching-quality variables (Δθ, Δφ over all 4 pairs of the
+    globally-chosen assignment). gen_match_dist = Σ_i √(Δθ_i²+Δφ_i²) is a single
+    event-level matching score to cut on, replacing the 4 per-jet dR<0.1 cuts.
+    gen_match_dmax = max_i √(Δθ_i²+Δφ_i²) is the worst single jet (≈ the per-jet cut)."""
+    for i in (1, 2, 3, 4):
+        df = df.Define(f"jet{i}_dtheta", f"(double)(jet{i}.Theta() - gen_quark{i}_theta)")
+        df = df.Define(f"jet{i}_dphi",
+            f"(double)TVector2::Phi_mpi_pi(jet{i}.Phi() - gen_quark{i}_phi)")
+        df = df.Define(f"jet{i}_dang",
+            f"std::sqrt(jet{i}_dtheta*jet{i}_dtheta + jet{i}_dphi*jet{i}_dphi)")
+    df = df.Define("gen_match_dist", "jet1_dang + jet2_dang + jet3_dang + jet4_dang")
+    df = df.Define("gen_match_dmax",
+        "std::max(std::max(jet1_dang, jet2_dang), std::max(jet3_dang, jet4_dang))")
+    return df
+
+
+def define_resolutions_4q(df):
+    for i in (1, 2, 3, 4):
+        df = df.Define(f"jet{i}_p_resp",      f"reco_jet{i}_p / gen_quark{i}_p")
+        df = df.Define(f"jet{i}_theta_resol", f"reco_jet{i}_theta - gen_quark{i}_theta")
+        df = df.Define(f"jet{i}_phi_resol",
+            f"TVector2::Phi_mpi_pi(reco_jet{i}_phi - gen_quark{i}_phi)")
+        df = df.Define(f"jet{i}_eta_resol",      f"reco_jet{i}_eta - gen_quark{i}_eta")
+        df = df.Define(f"jet{i}_costheta_resol", f"reco_jet{i}_costheta - gen_quark{i}_costheta")
+    return df
+
+
+_GW_MODE_TO_INT = {"fixed": 0, "constrained": 1, "free": 2}
+
 # ── kinematic fit (step2 only) ───────────────────────────────────────────────
-def run_kinfit(df, free_gw=False):
-    free_gw = "true" if free_gw else "false"
+def run_kinfit(df, gw_mode="fixed"):
+    if gw_mode not in _GW_MODE_TO_INT:
+        raise ValueError(
+            f"gw_mode={gw_mode!r} must be one of {list(_GW_MODE_TO_INT)}"
+        )
+    gw_mode_int = _GW_MODE_TO_INT[gw_mode]
     df = df.Define("kinfit",
         "FCCAnalyses::WWFunctions::kinFit("
         "reco_jet1_p, reco_jet1_theta, reco_jet1_phi,"
         "reco_jet2_p, reco_jet2_theta, reco_jet2_phi,"
         "reco_lep_p,  reco_lep_theta,  reco_lep_phi,"
-        f"reco_met_p, reco_met_theta, reco_met_phi, {free_gw})")
+        f"reco_met_p, reco_met_theta, reco_met_phi, {gw_mode_int})")
 
     for tag in ["mW","gW",
                 "s1","s2","sl","sn",
@@ -378,6 +641,18 @@ def run_kinfit(df, free_gw=False):
                 "chi2","chi2_ndof","valid","valid_loose","status","edm",
                 "winner_pass","n_passes_run","priors_swapped"]:
         df = df.Define(f"kinfit_{tag}", f"kinfit.{tag}")
+
+    # Post-fit correlation matrix (16x16, row-major flat). Index order is
+    # FCCAnalyses::WWFunctions::KF_PARAM_NAMES; entry [i*N+j] is corr(i,j).
+    # Stored as a single ROOT::RVecF column to keep the per-event payload as
+    # one branch instead of 120 scalars.
+    df = df.Define("kinfit_corr",
+        "ROOT::RVecF _c(FCCAnalyses::WWFunctions::KF_NPAR_TOTAL "
+        "* FCCAnalyses::WWFunctions::KF_NPAR_TOTAL);"
+        " for (int _i = 0; _i < FCCAnalyses::WWFunctions::KF_NPAR_TOTAL; ++_i)"
+        "  for (int _j = 0; _j < FCCAnalyses::WWFunctions::KF_NPAR_TOTAL; ++_j)"
+        "   _c[_i * FCCAnalyses::WWFunctions::KF_NPAR_TOTAL + _j] = kinfit.corr[_i][_j];"
+        " return _c;")
 
     # Postfit scalars projected from TLVs in KinFitResult.
     for obj, src in [("jet1","j1"), ("jet2","j2"), ("lep","lep"), ("nu","nu")]:
@@ -405,5 +680,119 @@ def run_kinfit(df, free_gw=False):
     df = df.Define("kinfit_WW_pz",              "WW_kinfit.Pz()")
     df = df.Define("kinfit_WW_p_imbalance_tot", "WW_kinfit.P()")
     return df
+
+
+# ── WW → 4q kinematic fit (step2 only) ───────────────────────────────────────
+def run_kinfit_4q(df, gw_mode="constrained", with_truth=True):
+    """Best-pairing 4q kinematic fit (WWKinReco4q.h). Runs all 3 jet→W
+    partitions, keeps the lowest-χ² one, and emits pairing / χ² / W kinematics
+    branches. with_truth=True also emits the gen-truth pairing-correctness flag
+    (needs gen_pairing_true); set False for background / data-like samples where
+    no W gen-truth exists (e.g. ZZ→4q, applying the WW hypothesis as a χ²
+    discriminant)."""
+    if gw_mode not in _GW_MODE_TO_INT:
+        raise ValueError(f"gw_mode={gw_mode!r} must be one of {list(_GW_MODE_TO_INT)}")
+    gw_mode_int = _GW_MODE_TO_INT[gw_mode]
+    df = df.Define("kinfit4q",
+        "FCCAnalyses::WWFunctions::kinFit4q_bestpairing("
+        "reco_jet1_p, reco_jet1_theta, reco_jet1_phi,"
+        "reco_jet2_p, reco_jet2_theta, reco_jet2_phi,"
+        "reco_jet3_p, reco_jet3_theta, reco_jet3_phi,"
+        f"reco_jet4_p, reco_jet4_theta, reco_jet4_phi, {gw_mode_int})")
+
+    # Pairing-level outputs (the headline: which partition wins + χ² separation).
+    df = df.Define("kinfit4q_pairing",           "kinfit4q.pairing")
+    df = df.Define("kinfit4q_chi2_p0",           "kinfit4q.chi2_p0")
+    df = df.Define("kinfit4q_chi2_p1",           "kinfit4q.chi2_p1")
+    df = df.Define("kinfit4q_chi2_p2",           "kinfit4q.chi2_p2")
+    df = df.Define("kinfit4q_dchi2",             "kinfit4q.dchi2")
+    df = df.Define("kinfit4q_n_pairings_valid",  "kinfit4q.n_pairings_valid")
+
+    # Winning-fit quality + parameters.
+    for tag, expr in [
+        ("chi2",        "kinfit4q.fit.chi2"),
+        ("chi2_ndof",   "kinfit4q.fit.chi2_ndof"),
+        ("valid",       "kinfit4q.fit.valid"),
+        ("valid_loose", "kinfit4q.fit.valid_loose"),
+        ("status",      "kinfit4q.fit.status"),
+        ("edm",         "kinfit4q.fit.edm"),
+        ("winner_pass", "kinfit4q.fit.winner_pass"),
+        ("mW",          "kinfit4q.fit.mW"),
+        ("gW",          "kinfit4q.fit.gW"),
+    ]:
+        df = df.Define(f"kinfit4q_{tag}", expr)
+
+    # Post-fit W / WW kinematics (W_a = first pair, W_b = second pair).
+    for W, src in [("Wa", "kinfit4q.Wa"), ("Wb", "kinfit4q.Wb"), ("WW", "kinfit4q.WW")]:
+        df = df.Define(f"kinfit4q_{W}_m",  f"{src}.M()")
+        df = df.Define(f"kinfit4q_{W}_p",  f"{src}.P()")
+        df = df.Define(f"kinfit4q_{W}_pt", f"{src}.Pt()")
+        df = df.Define(f"kinfit4q_{W}_pz", f"{src}.Pz()")
+
+    # Pairing correctness vs gen truth (gen_pairing_true uses the same index
+    # convention as kinFit4q_bestpairing / pairing_index_from_groups).
+    if with_truth:
+        df = df.Define("kinfit4q_pairing_correct",
+            "(int)(gen_pairing_true >= 0 && kinfit4q.pairing == gen_pairing_true)")
+    return df
+
+
+# ── Standalone BW jet→W pairing (no kinematic fit; WWFunctions/BWPairing.h) ───
+def run_bw_pairing(df, with_truth=True):
+    """Fast BW pairing discriminant on the 4 reco jets. Emits the most-probable
+    partition, the per-partition gof / posterior probability / di-jet masses, and
+    (signal only) the gen-truth correctness flag. No Minuit — pure arithmetic."""
+    df = df.Define("bwpair",
+        "FCCAnalyses::WWFunctions::bwPairing(jet1, jet2, jet3, jet4)")
+    df = df.Define("bwpair_pairing",   "bwpair.pairing")
+    df = df.Define("bwpair_gof_best",  "bwpair.gof_best")
+    df = df.Define("bwpair_prob_best", "bwpair.prob_best")
+    df = df.Define("bwpair_dgof",      "bwpair.dgof")
+    for k in range(3):
+        df = df.Define(f"bwpair_gof{k}",  f"bwpair.gof[{k}]")
+        df = df.Define(f"bwpair_prob{k}", f"bwpair.prob[{k}]")
+        df = df.Define(f"bwpair_ma{k}",   f"bwpair.m_a[{k}]")
+        df = df.Define(f"bwpair_mb{k}",   f"bwpair.m_b[{k}]")
+    if with_truth:
+        df = df.Define("bwpair_correct",
+            "(int)(gen_pairing_true >= 0 && bwpair.pairing == gen_pairing_true)")
+    return df
+
+
+# ── DIAGNOSTIC: full fit on all 3 pairings + per-term χ² breakdown ────────────
+# Emits, per jet→W partition k∈{0,1,2}: full-fit chi2 / valid / status / ndof and
+# the 8-way per-term decomposition (bw, bes, isr, m_loss, scale_pen, angular, mw,
+# gw). Heavier than production (3 full fits/event); use on a diagnostic subsample
+# to root-cause the discriminant + chi2-magnitude. Returns the extra branch names
+# so the caller can append them to the output list.
+def run_kinfit_4q_diag(df, gw_mode="constrained"):
+    gw_mode_int = _GW_MODE_TO_INT[gw_mode]
+    df = df.Define("kf4qdiag",
+        "FCCAnalyses::WWFunctions::kinFit4q_diag("
+        "reco_jet1_p, reco_jet1_theta, reco_jet1_phi,"
+        "reco_jet2_p, reco_jet2_theta, reco_jet2_phi,"
+        "reco_jet3_p, reco_jet3_theta, reco_jet3_phi,"
+        f"reco_jet4_p, reco_jet4_theta, reco_jet4_phi, {gw_mode_int})")
+    branches = ["kf4qdiag_argmin"]
+    df = df.Define("kf4qdiag_argmin", "kf4qdiag.argmin")
+    _terms = ["bw", "bes", "isr", "m_loss", "scale_pen", "angular", "mw", "gw", "total", "gof"]
+    for k in range(3):
+        for tag, expr in [
+            (f"chi2_p{k}",        f"(float)kf4qdiag.chi2[{k}]"),
+            (f"valid_p{k}",       f"(int)kf4qdiag.valid[{k}]"),
+            (f"valid_loose_p{k}", f"(int)kf4qdiag.valid_loose[{k}]"),
+            (f"status_p{k}",      f"(int)kf4qdiag.status[{k}]"),
+            (f"ndof_p{k}",        f"(float)kf4qdiag.ndof[{k}]"),
+            (f"edm_p{k}",         f"(float)kf4qdiag.edm[{k}]"),
+            (f"fast_status_p{k}", f"(int)kf4qdiag.fast_status[{k}]"),
+            (f"fast_valid_p{k}",  f"(int)kf4qdiag.fast_valid[{k}]"),
+            (f"fast_edm_p{k}",    f"(float)kf4qdiag.fast_edm[{k}]"),
+        ]:
+            name = f"kf4qdiag_{tag}"
+            df = df.Define(name, expr); branches.append(name)
+        for tm in _terms:
+            name = f"kf4qdiag_t_{tm}_p{k}"
+            df = df.Define(name, f"(float)kf4qdiag.terms[{k}].{tm}"); branches.append(name)
+    return df, branches
 
 

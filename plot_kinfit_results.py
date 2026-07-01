@@ -2,14 +2,17 @@
 """
 Plot kinfit results from step2 treemaker output.
 
-Two stages, run in order:
-  1. mW overlay      — per-ECM and ECM-comparison plots of W-mass branches
-                       (reco / kinfit pre/post / kinfit combined)
-                       → outputs/plots/lnuqq/allbranches/  (publish: "mW_overlay")
+Three stages, run in order:
+  1. mW overlay       — per-ECM and ECM-comparison plots of W-mass branches
+                        (reco / kinfit pre/post / kinfit combined)
+                        → outputs/plots/lnuqq/allbranches/  (publish: "mW_overlay")
   2. kinfit variables — per-ECM and ECM-comparison plots for every kinfit branch,
-                       with input-PDF overlays from fit_resolutions.py JSON,
-                       reco/gen comparisons, and equal-N NLL slices.
-                       → outputs/plots/kinfit_vars/         (publish: "kinfit_vars")
+                        with input-PDF overlays from fit_resolutions.py JSON,
+                        reco/gen comparisons, and equal-N NLL slices.
+                        → outputs/plots/kinfit_vars/         (publish: "kinfit_vars")
+  3. correlations     — distribution of post-fit ρ for every parameter pair
+                        + 2D summary heatmap (mean / median / mode).
+                        → outputs/plots/kinfit_correlations/ (publish: "kinfit_correlations")
 """
 
 import os, json, math
@@ -1374,20 +1377,236 @@ def run_kinfit_vars():
 
 
 # =============================================================================
+# Stage 3 — kinfit correlation matrix
+# =============================================================================
+
+CORR_OUTDIR = "outputs/plots/kinfit_correlations"
+
+# Index → name in the row-major 16x16 stored as `kinfit_corr`. Mirrors
+# FCCAnalyses::WWFunctions::KF_PARAM_NAMES (WWKinReco.h) — must stay in sync.
+CORR_PARAM_NAMES = [
+    "mW", "gW", "s1", "s2", "sl", "sn",
+    "t1", "t2", "tn", "p1", "p2", "pn",
+    "tl", "pl", "bes_m", "bes_pz",
+]
+N_CORR_PAR = len(CORR_PARAM_NAMES)
+CORR_SUMMARY_KINDS = ("mean", "median", "mode")
+_MODE_EDGES   = np.linspace(-1.0, 1.0, 101)
+_MODE_CENTRES = 0.5 * (_MODE_EDGES[:-1] + _MODE_EDGES[1:])
+
+
+def _load_corr_matrices(ecm):
+    """Return (strict, loose_only) (N, 16, 16) post-fit correlation arrays for
+    one ECM. strict = kinfit_valid==1; loose_only = kinfit_valid_loose==1 AND
+    kinfit_valid==0. Either can be None (missing file/branch, or empty mask)."""
+    infile = INFILE_TMPL.format(ecm=ecm)
+    if not os.path.exists(infile) or os.path.getsize(infile) < 1_000_000:
+        return None, None
+
+    try:
+        with uproot.open(infile) as f:
+            tree = f[TREE_NAME]
+            if "kinfit_corr" not in tree.keys():
+                print(f"  WARNING [ecm{ecm}]: kinfit_corr branch missing")
+                return None, None
+            arrs = tree.arrays(
+                ["kinfit_corr", "kinfit_valid", "kinfit_valid_loose"],
+                library="np")
+    except Exception as e:
+        print(f"  WARNING [ecm{ecm}]: cannot read kinfit_corr ({e})")
+        return None, None
+
+    flat         = arrs["kinfit_corr"]
+    valid_strict = arrs["kinfit_valid"].astype(bool)
+    loose_only   = arrs["kinfit_valid_loose"].astype(bool) & ~valid_strict
+
+    def _to_mat(mask):
+        rows = flat[mask]
+        if len(rows) == 0:
+            return None
+        return (np.asarray(rows.tolist(), dtype=np.float32)
+                  .reshape(-1, N_CORR_PAR, N_CORR_PAR))
+    return _to_mat(valid_strict), _to_mat(loose_only)
+
+
+def _summary_matrix(mats, kind):
+    """Per-pair scalar summary across events. NaNs (fixed-gW row/col, invalid
+    cov slots) are ignored per cell."""
+    if kind == "mean":
+        return np.nanmean(mats, axis=0)
+    if kind == "median":
+        return np.nanmedian(mats, axis=0)
+    if kind == "mode":
+        # Per-cell histogram peak on [-1, 1] in 100 bins. Constant cells (e.g.
+        # diagonal=1) bypass the histogram so the result is exact.
+        out = np.full((N_CORR_PAR, N_CORR_PAR), np.nan, dtype=float)
+        for i in range(N_CORR_PAR):
+            for j in range(N_CORR_PAR):
+                v = mats[:, i, j]
+                v = v[np.isfinite(v)]
+                if len(v) == 0:
+                    continue
+                if v.std() == 0:
+                    out[i, j] = float(v[0])
+                    continue
+                counts, _ = np.histogram(v, bins=_MODE_EDGES)
+                out[i, j] = _MODE_CENTRES[int(np.argmax(counts))]
+        return out
+    raise ValueError(f"unknown summary kind: {kind}")
+
+
+def _plot_corr_heatmap(M, fname, title, cbar_label, outdir, vmax=1.0):
+    """Render a labelled 16×16 heatmap of M. vmax sets the symmetric colour
+    range; per-cell text colour flips to white above |M|/vmax > 0.5."""
+    fig, ax = plt.subplots(figsize=(8.5, 7.5))
+    im = ax.imshow(M, cmap="RdBu_r", vmin=-vmax, vmax=vmax, aspect="equal")
+    ax.set_xticks(np.arange(N_CORR_PAR))
+    ax.set_yticks(np.arange(N_CORR_PAR))
+    ax.set_xticklabels(CORR_PARAM_NAMES, rotation=45, ha="right", fontsize=9)
+    ax.set_yticklabels(CORR_PARAM_NAMES, fontsize=9)
+    text_thresh = 0.5 * vmax
+    for i in range(N_CORR_PAR):
+        for j in range(N_CORR_PAR):
+            v = M[i, j]
+            if np.isfinite(v):
+                ax.text(j, i, f"{v:+.2f}", ha="center", va="center",
+                        fontsize=6.5,
+                        color="white" if abs(v) > text_thresh else "black")
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label(cbar_label, fontsize=11)
+    ax.set_title(title, fontsize=12)
+    fig.tight_layout()
+    for fmt in ("png", "pdf"):
+        fig.savefig(f"{outdir}/{fname}.{fmt}", dpi=150)
+    plt.close(fig)
+
+
+def _plot_corr_distributions(strict, loose_only, ecm, outdir):
+    """16x16 grid: strict (filled blue) vs loose-only (orange step) overlaid
+    per cell. Lower triangle hidden (matrix is symmetric)."""
+    fig, axes = plt.subplots(N_CORR_PAR, N_CORR_PAR,
+                              figsize=(2 * N_CORR_PAR, 2 * N_CORR_PAR),
+                              sharex=True, sharey=False)
+    for i in range(N_CORR_PAR):
+        for j in range(N_CORR_PAR):
+            ax = axes[i, j]
+            ax.set_xlim(-1.0, 1.0)
+            if j < i:
+                ax.set_visible(False)
+                continue
+            if i == 0:
+                ax.set_title(CORR_PARAM_NAMES[j], fontsize=8)
+            if j == N_CORR_PAR - 1:
+                ax.yaxis.set_label_position("right")
+                ax.set_ylabel(CORR_PARAM_NAMES[i], fontsize=8, rotation=270, va="bottom")
+            ax.tick_params(labelsize=6)
+            if i == j:
+                ax.text(0.5, 0.5, "1", ha="center", va="center",
+                        transform=ax.transAxes, fontsize=10, color="grey")
+                ax.set_yticks([])
+                continue
+            for arr, label, color, fill in (
+                (strict,     "strict",     "tab:blue",   True),
+                (loose_only, "loose-only", "tab:orange", False),
+            ):
+                if arr is None:
+                    continue
+                v = arr[:, i, j]
+                v = v[np.isfinite(v)]
+                if len(v) == 0:
+                    continue
+                ax.hist(v, bins=50, range=(-1.0, 1.0), density=True,
+                         histtype="stepfilled" if fill else "step",
+                         color=color, alpha=0.45 if fill else 1.0,
+                         edgecolor=color, lw=1.0, label=label)
+            ax.text(0.97, 0.97,
+                    rf"$\rho$({CORR_PARAM_NAMES[i]}, {CORR_PARAM_NAMES[j]})",
+                    transform=ax.transAxes, fontsize=6.5,
+                    ha="right", va="top")
+            if i == 0 and j == 1:
+                ax.legend(fontsize=6, frameon=False, loc="upper left")
+    fig.suptitle(rf"Per-pair ρ — strict vs loose-only — $\sqrt{{s}}$ = {ecm} GeV",
+                  fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, 0.985))
+    for fmt in ("png", "pdf"):
+        fig.savefig(f"{outdir}/distributions_ecm{ecm}.{fmt}", dpi=120)
+    plt.close(fig)
+
+
+def run_kinfit_correlations():
+    os.makedirs(CORR_OUTDIR, exist_ok=True)
+    cmp_outdir = os.path.join(CORR_OUTDIR, "strict_vs_loose")
+    os.makedirs(cmp_outdir, exist_ok=True)
+
+    n_done = 0
+    for ecm in ECM_LIST:
+        strict, loose_only = _load_corr_matrices(ecm)
+        if strict is None or len(strict) == 0:
+            print(f"  [ecm{ecm}] no strict-valid kinfit_corr data — skipping")
+            continue
+        n_loose = len(loose_only) if loose_only is not None else 0
+        print(f"  [ecm{ecm}] strict={len(strict)}  loose-only={n_loose}")
+
+        ecm_label = rf"$\sqrt{{s}}$ = {ecm} GeV"
+        _plot_corr_distributions(strict, loose_only, ecm, CORR_OUTDIR)
+        for kind in CORR_SUMMARY_KINDS:
+            M_s = _summary_matrix(strict, kind)
+            _plot_corr_heatmap(
+                M_s, f"heatmap_{kind}_ecm{ecm}",
+                f"Post-fit correlations ({kind}) — {ecm_label}",
+                rf"$\langle\rho\rangle_{{\rm {kind}}}$",
+                CORR_OUTDIR)
+            if loose_only is None:
+                continue
+            M_l = _summary_matrix(loose_only, kind)
+            _plot_corr_heatmap(
+                M_l, f"heatmap_{kind}_loose_ecm{ecm}",
+                f"Post-fit correlations ({kind}, loose-only) — {ecm_label}",
+                rf"$\langle\rho\rangle_{{\rm {kind}}}$",
+                cmp_outdir)
+            D = M_l - M_s
+            finite = D[np.isfinite(D)]
+            vmax_d = max(0.05, float(np.nanmax(np.abs(finite))) if len(finite) else 0.05)
+            _plot_corr_heatmap(
+                D, f"heatmap_diff_{kind}_ecm{ecm}",
+                f"Δ post-fit correlations ({kind}, loose − strict) — {ecm_label}",
+                rf"$\Delta\langle\rho\rangle_{{\rm {kind}}}$ (loose − strict)",
+                cmp_outdir, vmax=vmax_d)
+        print(f"  [ecm{ecm}] correlation plots done")
+        # Free per-ECM matrices so peak memory is one-ECM, not all-ECMs.
+        del strict, loose_only
+        n_done += 1
+
+    if n_done == 0:
+        print("No correlation data found — skipping stage 3")
+        return
+
+    print(f"Done. Correlation plots in {CORR_OUTDIR}/")
+    print(f"      strict-vs-loose 2D heatmaps in {cmp_outdir}/")
+    publish(CORR_OUTDIR, os.environ.get("CORR_PUBSUB", "kinfit_correlations"))
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
 def main():
     print("=" * 60)
-    print(" Stage 1 / 2 — mW overlay")
+    print(" Stage 1 / 3 — mW overlay")
     print("=" * 60)
     run_mW_overlay()
 
     print()
     print("=" * 60)
-    print(" Stage 2 / 2 — kinfit variables")
+    print(" Stage 2 / 3 — kinfit variables")
     print("=" * 60)
     run_kinfit_vars()
+
+    print()
+    print("=" * 60)
+    print(" Stage 3 / 3 — kinfit correlations")
+    print("=" * 60)
+    run_kinfit_correlations()
 
 
 if __name__ == "__main__":
